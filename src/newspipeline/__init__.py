@@ -1,7 +1,7 @@
 """newspipeline — standalone local news pipeline agent.
 
 RSS scraping, LLM-based theme analysis and content generation, with
-email and local-file delivery. Extracted from the legacy Workbench monolith.
+email and local-file delivery.
 """
 
 # version: 0.1.0

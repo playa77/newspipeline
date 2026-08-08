@@ -1,8 +1,8 @@
 """SMTP delivery for pipeline results and failure alerts.
 
-Ported from legacy/news_emailer.py: plain-text emails, STARTTLS+LOGIN when a
-user is configured, plain connection otherwise (e.g. a local relay). Two
-retries with 10s backoff on transient SMTP errors.
+Plain-text emails, STARTTLS+LOGIN when a user is configured, plain
+connection otherwise (e.g. a local relay). Two retries with 10s backoff on
+transient SMTP errors.
 
 The SMTP password comes from .env (NEWS_SMTP_PASSWORD), never from
 settings.toml, and is never logged (invariant G1).
@@ -42,7 +42,7 @@ def send_email(
     subject: str,
     body: str,
 ) -> None:
-    """Send a plain-text email via SMTP (ported from legacy _send_email)."""
+    """Send a plain-text email via SMTP."""
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = sender
@@ -84,10 +84,9 @@ def send_pipeline_results(
 ) -> int:
     """Send the daily brief and per-theme deliverable emails for a run.
 
-    Ported from legacy send_pipeline_results: one brief email when
-    ``enable_brief``, then one email per theme containing the enabled
-    deliverables (summary / script / script_de). Returns the number of
-    emails sent.
+    One brief email when ``enable_brief``, then one email per theme
+    containing the enabled deliverables (summary / script / script_de).
+    Returns the number of emails sent.
     """
     emails_sent = 0
 
@@ -157,7 +156,7 @@ def send_failure_alert(
     smtp_config: dict[str, Any],
     recipient: str,
 ) -> None:
-    """Send a failure-alert email for a pipeline error (ported from legacy)."""
+    """Send a failure-alert email for a pipeline error."""
     date = datetime.now(UTC).strftime("%Y-%m-%d")
     send_email(
         smtp_host=smtp_config.get("host", "localhost"),

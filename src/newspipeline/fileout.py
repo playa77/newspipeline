@@ -1,6 +1,5 @@
 """Local-file delivery mode: write pipeline output as markdown files.
 
-New in the standalone app (the legacy monolith delivered only via email).
 Output layout:
 
     <output_dir>/<interest-slug>/<run-date>/

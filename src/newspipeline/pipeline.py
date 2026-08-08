@@ -1,7 +1,7 @@
 """News pipeline core: scrape → analyze → generate → brief.
 
-Ported stage-for-stage from legacy/news_pipeline.py. Single-user: interests
-come from settings.toml, persistence via store.Store, LLM via llm.LLMClient.
+Single-user: interests come from settings.toml, persistence via store.Store,
+LLM via llm.LLMClient.
 
 Stages:
 1. scrape   — RSS feeds (feedparser) + article body extraction (trafilatura),
@@ -32,7 +32,7 @@ from newspipeline.store import Store, utcnow_iso
 
 logger = logging.getLogger(__name__)
 
-# Common words for the language heuristic (ported from legacy).
+# Common words for the language heuristic.
 _GERMAN_WORDS: set[str] = {
     "der", "die", "das", "und", "ist", "sind", "ein", "eine", "auf", "für",
     "mit", "von", "zu", "im", "den", "dem", "des", "sich", "nicht", "auch",
@@ -49,7 +49,7 @@ _ENGLISH_WORDS: set[str] = {
 
 
 def detect_language(text: str) -> str:
-    """Detect German vs English by word frequency (ported from legacy).
+    """Detect German vs English by word frequency.
 
     Returns "de" when German hits exceed English hits by 1.5x, else "en".
     Falls back to "en" on any error.
@@ -70,17 +70,16 @@ def detect_language(text: str) -> str:
 class Pipeline:
     """Runs one interest through scrape → analyze → generate → brief.
 
-    Ported from legacy NewsPipeline with these adaptations:
-    - store is store.Store (sync sqlite3) instead of NewsStore (async pg)
+    Structure:
+    - store is store.Store (sync sqlite3)
     - interest dict comes from settings.toml; feeds from interest["feeds"]
     - per-stage models: global.models.{analysis,generation,brief} with
       fallback to global.default_model
     - reasoning effort: global.reasoning.effort, forwarded per LLM call
 
     Stage failures (analysis, generation, brief) are logged and swallowed —
-    a run completes with partial results rather than failing outright,
-    matching legacy behavior. Only unexpected errors outside the stage
-    bodies fail the run.
+    a run completes with partial results rather than failing outright.
+    Only unexpected errors outside the stage bodies fail the run.
     """
 
     def __init__(self, *, store: Store, settings: dict[str, Any], api_key: str) -> None:
@@ -138,8 +137,8 @@ class Pipeline:
         ) as http:
             for feed in feeds:
                 try:
-                    # feedparser.parse is blocking; parity with legacy. Feed
-                    # fetches are sequential and local-scale, so this is fine.
+                    # feedparser.parse is blocking; feed fetches are
+                    # sequential and local-scale, so this is fine.
                     parsed = feedparser.parse(feed["url"])
                     for entry in parsed.entries[:20]:
                         url = entry.get("link", "")

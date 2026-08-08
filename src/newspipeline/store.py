@@ -1,8 +1,7 @@
 """SQLite persistence for pipeline data (stdlib sqlite3, no ORM).
 
-Schema is ported from legacy/news_store.py with these changes:
-- user scoping removed (single-user local app)
-- email-recipient verification columns removed (not ported)
+Schema notes:
+- single-user local app, no user scoping
 - interests/feeds are NOT here — they live in config/settings.toml
   (DECISIONS.md D3); runs reference interests by name (D5)
 
@@ -88,8 +87,7 @@ def today_str() -> str:
 def parse_rss_date(raw: str) -> str:
     """Parse an RSS pubDate into an ISO 8601 UTC string; fall back to now.
 
-    Ported from legacy NewsStore._parse_date (RFC 2822 first, then common
-    ISO variants; naive values assumed UTC).
+    RFC 2822 first, then common ISO variants; naive values assumed UTC.
     """
     if raw and raw.strip():
         raw = raw.strip()

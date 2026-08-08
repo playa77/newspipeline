@@ -1,11 +1,11 @@
-"""Guard tests for invariant G3: next-run computation preserves legacy
-semantics (start_time + interval grid, 60s tick window).
+"""Guard tests for invariant G3: next-run computation preserves the original
+scheduler semantics (start_time + interval grid, 60s tick window).
 
-Parity is tested against the actual legacy module (imported from legacy/),
-not a reimplementation.
+The reference outputs are frozen in reference_snapshots.py (captured from
+the retired reference implementation before its removal on 2026-08-08).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,23 +18,23 @@ from newspipeline.scheduler import (
     is_paused,
 )
 
-from conftest import load_legacy_module
+from reference_snapshots import MALFORMED_NEXT_RUN, MISSED, NEXT_RUN
 
 TZ = ZoneInfo("Europe/Berlin")
+NOW = datetime(2026, 8, 8, 9, 37, 25, tzinfo=TZ)
+
+MISSED_NOWS = (
+    datetime(2026, 8, 8, 9, 37, tzinfo=TZ),
+    datetime(2026, 8, 8, 0, 3, tzinfo=TZ),
+    datetime(2026, 8, 8, 23, 59, tzinfo=TZ),
+)
 
 
-@pytest.fixture(scope="module")
-def legacy():
-    return load_legacy_module("legacy_news_scheduler", "news_scheduler.py")
-
-
-def test_next_run_matches_legacy(legacy):
-    now = datetime(2026, 8, 8, 9, 37, 25, tzinfo=TZ)
-    for start_time in ("04:00", "06:30", "00:00", "23:45", "12:05"):
-        for interval in (1, 2, 6, 12, 24, 48, 168, 0, 200):
-            assert compute_next_run_seconds(start_time, interval, now) == pytest.approx(
-                legacy._compute_next_run_seconds(start_time, interval, now)
-            ), (start_time, interval)
+def test_next_run_matches_frozen_reference():
+    for (start_time, interval), expected in NEXT_RUN.items():
+        assert compute_next_run_seconds(start_time, interval, NOW) == pytest.approx(
+            expected
+        ), (start_time, interval)
 
 
 def test_next_run_grid_semantics():
@@ -54,26 +54,18 @@ def test_next_run_tick_window():
     assert outside > 65, "a run outside the 60s tick window must not be due"
 
 
-def test_next_run_malformed_time_falls_back_to_0400(legacy):
+def test_next_run_malformed_time_falls_back_to_0400():
     now = datetime(2026, 8, 8, 3, 0, tzinfo=TZ)
-    for bad in ("", "xx", "4", "25:99"):
-        assert compute_next_run_seconds(bad, 24, now) == pytest.approx(
-            legacy._compute_next_run_seconds(bad, 24, now)
-        )
+    for bad, expected in MALFORMED_NEXT_RUN.items():
+        assert compute_next_run_seconds(bad, 24, now) == pytest.approx(expected)
     assert compute_next_run_seconds("xx", 24, now) == 3600  # 04:00 fallback
 
 
-def test_find_most_recent_missed_matches_legacy(legacy):
-    for start_time in ("04:00", "06:30", "23:45"):
-        for interval in (1, 6, 24, 168):
-            for now in (
-                datetime(2026, 8, 8, 9, 37, tzinfo=TZ),
-                datetime(2026, 8, 8, 0, 3, tzinfo=TZ),
-                datetime(2026, 8, 8, 23, 59, tzinfo=TZ),
-            ):
-                assert find_most_recent_missed(start_time, interval, now) == \
-                    legacy._find_most_recent_missed(start_time, interval, now), \
-                    (start_time, interval, now)
+def test_find_most_recent_missed_matches_frozen_reference():
+    for (start_time, interval, now_idx), expected in MISSED.items():
+        result = find_most_recent_missed(start_time, interval, MISSED_NOWS[now_idx])
+        expected_dt = datetime.fromisoformat(expected) if expected else None
+        assert result == expected_dt, (start_time, interval, now_idx)
 
 
 def test_find_most_recent_missed_grace_period():

@@ -31,7 +31,7 @@ settings.toml, data/, .env.
 
 `store.py`: schema (runs, articles, themes, deliverables, briefs), thread-safe
 single connection, WAL, URL dedupe via UNIQUE + ON CONFLICT. RSS date parsing
-ported from legacy.
+included.
 
 **Done when:** all methods implemented; guard tests for G2 land in WP9.
 
@@ -46,8 +46,8 @@ verification (T3) — behavior verified against a mock endpoint in WP9.
 
 ## WP4 — Pipeline stages ⬜
 
-`pipeline.py`: port `_scrape`, `_analyze`, `_generate`, `_brief` from
-`legacy/news_pipeline.py`. Adaptations: sync sqlite store; feeds from the
+`pipeline.py`: stages `_scrape`, `_analyze`, `_generate`, `_brief`.
+Design: sync sqlite store; feeds from the
 interest dict; per-stage models and reasoning effort from settings; run
 status/stage transitions recorded in the store.
 
@@ -56,8 +56,8 @@ G5 guard tests green (with WP9).
 
 ## WP5 — Delivery: email + local file ⬜
 
-`emailer.py`: port `send_pipeline_results` and `send_failure_alert` from
-legacy (brief email + per-theme emails; failure alerts). `fileout.py`:
+`emailer.py`: `send_pipeline_results` and `send_failure_alert`
+(brief email + per-theme emails; failure alerts). `fileout.py`:
 write brief + per-theme markdown under `output/<interest>/<date>/`.
 Dispatch driven by `interest.delivery` (`["file"]`, `["email"]`, or both).
 Recipient resolution: interest `email_recipient`, else `[user] email`.

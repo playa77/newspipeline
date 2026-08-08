@@ -3,6 +3,23 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.1.1 — 2026-08-08
+
+### Removed
+
+- `legacy/` reference tree (6 files) and every active reference to it
+  (DECISIONS.md, below).
+
+### Changed
+
+- G3/G4 guard tests no longer import the retired reference modules; they
+  assert against frozen reference outputs captured from those modules
+  immediately before removal (`tests/reference_snapshots.py`). Guard test
+  name globs (`test_next_run_*`, `test_detect_language_*`) unchanged;
+  21/21 tests green.
+- Docstrings/comments in `src/`, `README.md`, and `WORKPACKAGES.md`
+  scrubbed of references to the removed tree.
+
 ## 0.1.0 — 2026-08-08
 
 ### Added

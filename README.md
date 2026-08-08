@@ -5,8 +5,7 @@ with an LLM, generates summaries / video scripts / a daily brief, and
 delivers them by email or as local markdown files. Runs on your Ubuntu
 desktop with a built-in scheduler and a minimal local settings UI.
 
-Extracted from a larger monolithic project (see `legacy/`, read-only
-reference). Python 3.12+, no Docker, no database server, no build step.
+Python 3.12+, no Docker, no database server, no build step.
 
 > Status: **0.1.0** — fully implemented; guard-test suite green
 > (`pytest tests/`). See [WORKPACKAGES.md](WORKPACKAGES.md) for the plan and

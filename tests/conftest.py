@@ -7,20 +7,15 @@
   server, capturing every LLM request for inspection.
 - ``smtp_server`` is a minimal fake SMTP server capturing messages (the
   unauthenticated path only; authenticated SMTP is T2, untestable locally).
-- ``load_legacy_module`` imports a legacy reference module for parity tests
-  (G3/G4 compare against the actual legacy implementation).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import socketserver
-import sys
 import threading
-import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -29,9 +24,6 @@ import pytest
 
 from newspipeline import config
 from newspipeline.store import Store
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LEGACY_DIR = PROJECT_ROOT / "legacy"
 
 FEED_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -241,30 +233,3 @@ def make_interest(http_port: int, delivery: list[str], **overrides: Any) -> dict
     }
     interest.update(overrides)
     return interest
-
-
-# ---- legacy module loader (parity tests) --------------------------------------
-
-def load_legacy_module(name: str, filename: str, *, stub_workbench: bool = False):
-    """Import a legacy reference module from legacy/ by file path.
-
-    ``stub_workbench`` installs throwaway ``workbench.*`` modules so
-    legacy/news_pipeline.py can be imported without the monolith; the stubs
-    are removed again after loading.
-    """
-    stubbed: list[str] = []
-    if stub_workbench:
-        for pkg in ("workbench", "workbench.shared", "workbench.shared.llm",
-                    "workbench.shared.llm.router"):
-            module = types.ModuleType(pkg)
-            sys.modules[pkg] = module
-            stubbed.append(pkg)
-        sys.modules["workbench.shared.llm.router"].OpenRouterClient = object
-    try:
-        spec = importlib.util.spec_from_file_location(name, LEGACY_DIR / filename)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        for pkg in stubbed:
-            sys.modules.pop(pkg, None)

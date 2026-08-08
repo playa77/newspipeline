@@ -160,3 +160,24 @@ commit):
   only `setdefault`s into `os.environ`, so a new API key saved via the UI
   was ignored by the running process until restart. `_upsert_env` now also
   updates `os.environ`. (T1 path touched — flagged at delivery.)
+
+## 2026-08-08 — D6: legacy/ tree removed; G3/G4 guards re-referenced to frozen snapshots (R2)
+
+Human instruction: delete `legacy/` and all references to it.
+The WP9 parity tests imported the legacy modules directly, so a plain
+deletion would have deleted the G3/G4 guard tests — not permitted without
+an R3. Decision: capture the legacy modules' outputs into
+`tests/reference_snapshots.py` (45 next-run grid values, 4 malformed-time
+values, 36 missed-run values, 8 language classifications) immediately
+before removal, and point the same guards at the frozen data. Guard names
+still match the invariant globs (`test_next_run_*`,
+`test_detect_language_*`); 21/21 tests green before and after.
+Rejected alternative: keep `legacy/` in the tree solely as test reference
+material — contradicts the explicit removal instruction; the frozen
+snapshots preserve the same semantics the parity tests enforced.
+The snapshots are now the baseline: the pre-removal semantics are fixed by
+fiat, and any future semantic change is a deliberate, visible diff against
+them rather than silent drift.
+Historical entries above and in CHANGELOG.md still mention `legacy/` —
+both files are append-only and are not rewritten; this entry supersedes
+the WP9 note about importlib-based parity testing.

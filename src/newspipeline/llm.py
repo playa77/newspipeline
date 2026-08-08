@@ -1,8 +1,8 @@
 """Single LLM call path: OpenAI-compatible chat completions client.
 
 All LLM traffic in newspipeline goes through LLMClient — there is no other
-code path (mirrors the legacy OpenRouterClient rule). Default provider is
-OpenRouter; both endpoint and model are configurable via settings.toml.
+code path. Default provider is OpenRouter; both endpoint and model are
+configurable via settings.toml.
 
 The API key is used only for the Authorization header and is never logged
 (invariant G1).

@@ -1,24 +1,14 @@
-"""Guard tests for invariant G4: language-detection heuristic parity with
-legacy.
+"""Guard tests for invariant G4: language-detection heuristic semantics.
 
-Parity is tested against the actual legacy module (imported from legacy/
-with the workbench package stubbed out), not a reimplementation.
+The reference outputs are frozen in reference_snapshots.py (captured from
+the retired reference implementation before its removal on 2026-08-08).
 """
 
-# version: 0.1.0
-
-import pytest
+# version: 0.2.0
 
 from newspipeline.pipeline import detect_language
 
-from conftest import load_legacy_module
-
-
-@pytest.fixture(scope="module")
-def legacy():
-    return load_legacy_module(
-        "legacy_news_pipeline", "news_pipeline.py", stub_workbench=True,
-    )
+from reference_snapshots import LANG
 
 
 def test_detect_language_german():
@@ -55,16 +45,6 @@ def test_detect_language_threshold_boundary():
     assert detect_language(f"{borderline} {en_words}") == "en"  # 3 not > 3
 
 
-def test_detect_language_matches_legacy(legacy):
-    texts = [
-        "",
-        "der die das und ist sind",
-        "the and is are was were for with",
-        "Der Markt und the policy ist mixed with the news",
-        "Über die Zukunft wird gesprochen und nichts ist sicher",
-        "a the an of to in on at by",
-        "12345 !!! ???",
-        "dass wenn aber oder weil the and",
-    ]
-    for text in texts:
-        assert detect_language(text) == legacy.detect_language(text), text
+def test_detect_language_matches_frozen_reference():
+    for text, expected in LANG.items():
+        assert detect_language(text) == expected, text
