@@ -135,3 +135,17 @@ commit):
   cookies, and a local single-user app has no session persistence need.
 - Feeds are add/remove only (no in-place edit); an edit is a remove plus an
   add. Keeps the form surface minimal.
+
+## 2026-08-08 — WP8 implementation notes (R1)
+
+- `newspipeline run --interest NAME` may target a paused interest (an
+  explicit human choice overrides the pause), while `--all` skips paused
+  interests like the scheduler does. `run` exits 1 on any failed run,
+  unknown interest, or missing API key; 0 otherwise.
+- SIGTERM handling in `serve`: the handler raises `SystemExit`, which
+  unwinds through `app.run()` into the `finally` that stops the scheduler;
+  `_cmd_serve` catches it and returns 0 normally. systemd's default
+  `systemctl stop` (SIGTERM) therefore shuts the scheduler down cleanly.
+- The systemd user unit is shipped at `deploy/newspipeline.service` with
+  `%h`-relative paths to adjust on install, replacing the inline README
+  sketch.

@@ -12,12 +12,22 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import shutil
+import signal
 import sys
+from typing import Any
 
 from newspipeline import __version__
 from newspipeline import config
+from newspipeline.delivery import deliver_failure_alert, deliver_run
+from newspipeline.pipeline import Pipeline
+from newspipeline.scheduler import SchedulerThread, is_paused
+from newspipeline.store import Store
+from newspipeline.web.app import create_app
+
+logger = logging.getLogger(__name__)
 
 
 def _setup_logging() -> None:
@@ -49,16 +59,91 @@ def _cmd_init() -> int:
     return 0
 
 
+async def _run_selected(
+    store: Store, settings: dict[str, Any], interests: list[dict[str, Any]], api_key: str,
+) -> int:
+    """Run the pipeline for each interest sequentially. Returns a count of failures."""
+    failures = 0
+    for interest in interests:
+        name = interest.get("name", "?")
+        try:
+            pipeline = Pipeline(store=store, settings=settings, api_key=api_key)
+            run_id = await pipeline.run(interest)
+            run = store.get_run(run_id) or {}
+            if run.get("status") == "completed":
+                deliver_run(run_id=run_id, store=store, settings=settings, interest=interest)
+                print(f"{name}: run {run_id} completed")
+            else:
+                failures += 1
+                error = run.get("error") or "unknown error"
+                deliver_failure_alert(
+                    interest=interest, settings=settings,
+                    stage_name=run.get("current_stage") or "unknown",
+                    error_message=error,
+                )
+                print(f"{name}: run {run_id} FAILED — {error}", file=sys.stderr)
+        except Exception as exc:
+            failures += 1
+            logger.exception("Run failed — interest=%r", name)
+            print(f"{name}: FAILED — {exc}", file=sys.stderr)
+    return failures
+
+
 def _cmd_run(interest: str | None, run_all: bool) -> int:
-    # TODO(WP4/WP8): load settings, resolve interest(s), run the pipeline
-    # via asyncio.run(), then dispatch delivery (email/file).
-    raise NotImplementedError("WP8")
+    settings = config.load_settings()
+    interests = settings.get("interests", [])
+
+    if run_all:
+        selected = [i for i in interests if not is_paused(i)]
+        if not selected:
+            print("no non-paused interests configured")
+            return 0
+    else:
+        selected = [i for i in interests if i.get("name") == interest]
+        if not selected:
+            names = ", ".join(i.get("name", "?") for i in interests) or "(none)"
+            print(f"interest {interest!r} not found — configured: {names}", file=sys.stderr)
+            return 1
+
+    api_key = config.get_api_key()
+    if not api_key:
+        print("NEWS_API_KEY is not set — add it to .env first", file=sys.stderr)
+        return 1
+
+    store = Store()
+    try:
+        failures = asyncio.run(_run_selected(store, settings, selected, api_key))
+    finally:
+        store.close()
+    return 1 if failures else 0
 
 
 def _cmd_serve(host: str, port: int, no_scheduler: bool) -> int:
-    # TODO(WP6/WP7/WP8): create the Flask app, start SchedulerThread,
-    # run the development server bound to 127.0.0.1 by default.
-    raise NotImplementedError("WP7")
+    store = Store()
+    scheduler: SchedulerThread | None = None
+    if not no_scheduler:
+        scheduler = SchedulerThread(store=store)
+        scheduler.start()
+
+    # SIGTERM: unwind through app.run() so the finally block stops the
+    # scheduler cleanly (systemd sends SIGTERM on `systemctl stop`).
+    def _sigterm(signum: int, frame: Any) -> None:
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _sigterm)
+
+    app = create_app(store=store, scheduler=scheduler)
+    logger.info("Serving settings UI on http://%s:%d (scheduler %s)",
+                host, port, "running" if scheduler else "disabled")
+    try:
+        app.run(host=host, port=port)
+    except SystemExit:
+        pass  # SIGTERM handler — fall through to the clean-shutdown path
+    finally:
+        if scheduler is not None:
+            scheduler.stop()
+        store.close()
+    return 0
 
 
 def main() -> int:

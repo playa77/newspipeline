@@ -8,8 +8,9 @@ desktop with a built-in scheduler and a minimal local settings UI.
 Extracted from a larger monolithic project (see `legacy/`, read-only
 reference). Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.1.0 scaffold** — see [WORKPACKAGES.md](WORKPACKAGES.md) for the
-> implementation plan and current state.
+> Status: **0.1.0** — fully implemented; the formal guard-test suite (WP9)
+> is still pending. See [WORKPACKAGES.md](WORKPACKAGES.md) for the plan and
+> per-package state.
 
 ## Features
 
@@ -58,34 +59,46 @@ to a network.
 ## Running
 
 ```bash
-# Manually, once:
-newspipeline run --interest "Example"
-newspipeline run --all
+# Manually, once (interests run sequentially, then delivery is dispatched):
+newspipeline run --interest "Example"   # one interest, even if paused
+newspipeline run --all                  # all non-paused interests
 
 # Continuously (UI + scheduler):
-newspipeline serve
+newspipeline serve                      # http://127.0.0.1:8421
+newspipeline serve --no-scheduler       # UI only, no scheduled runs
+newspipeline serve --host 127.0.0.1 --port 8421
+```
+
+`run` exits 0 when every selected run completed, 1 otherwise (unknown
+interest, missing API key, or a failed run — a failure alert email is sent
+when a recipient is configured).
+
+`serve` starts the scheduler on a background thread. Two behaviors to be
+aware of:
+
+- **Catch-up**: on startup, each interest whose most recent scheduled slot
+  was missed runs immediately. With a daily interest this means most app
+  starts trigger a run.
+- **Paused interests** (all deliverables disabled) never run on a schedule;
+  `run --interest NAME` can still force one manually.
+
+If the process is killed mid-run, the run's row in `data/news.db` stays in
+`running` state and blocks that interest from running again. Fix by setting
+its status in the database:
+
+```bash
+sqlite3 data/news.db "UPDATE runs SET status='failed', error='killed' WHERE status='running';"
 ```
 
 ### Autostart (optional)
 
-To keep the scheduler running across logins, install a systemd *user*
-service (replace paths):
-
-```ini
-# ~/.config/systemd/user/newspipeline.service
-[Unit]
-Description=newspipeline settings UI + scheduler
-
-[Service]
-WorkingDirectory=%h/projects/newspipeline
-ExecStart=%h/projects/newspipeline/.venv/bin/newspipeline serve
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
+To keep the scheduler running across logins, install the shipped systemd
+*user* unit and adjust the paths to your checkout:
 
 ```bash
+cp deploy/newspipeline.service ~/.config/systemd/user/
+$EDITOR ~/.config/systemd/user/newspipeline.service   # set WorkingDirectory/ExecStart
+systemctl --user daemon-reload
 systemctl --user enable --now newspipeline.service
 loginctl enable-linger "$USER"   # keep it running when logged out
 ```

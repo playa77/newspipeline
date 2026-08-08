@@ -77,3 +77,22 @@ happens. Format: version heading, date, grouped bullet points.
   paths, run status rendering. `pytest` smoke suite: 3 passed. Not covered:
   visual/browser rendering — the agent cannot see pages; a human browser
   check is pending at task approval.
+- WP8: CLI wiring completed —
+  - `run`: sequential pipeline runs over the selected interests
+    (`--all` skips paused; `--interest NAME` may force a paused one),
+    delivery dispatch on completion, failure-alert dispatch on failure,
+    exit code 1 on any failure / unknown interest / missing API key
+  - `serve`: builds the Flask app with the store and a live
+    `SchedulerThread`, binds 127.0.0.1:8421 by default, SIGTERM unwinds
+    into a clean scheduler stop and exit 0 (systemd-compatible)
+  - `deploy/newspipeline.service`: systemd user unit (replaces the inline
+    README sketch)
+  - README finalized against actual behavior: status line, run exit codes,
+    catch-up/pause semantics, stale-'running'-row repair via sqlite3,
+    autostart via the shipped unit
+  - Verified end-to-end with redirected config paths (real
+    settings.toml/.env/data untouched): `run --all` (completed run + file
+    delivery, paused interest untouched), explicit paused-interest run,
+    unknown-interest and missing-key exits, and `serve` with a real browser
+    round-trip (GET / 200, POST /run → real scheduled run completed,
+    SIGTERM → scheduler stopped, exit 0). `pytest` smoke suite: 3 passed.

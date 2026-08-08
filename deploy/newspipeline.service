@@ -1,0 +1,22 @@
+# newspipeline systemd *user* service — settings UI + built-in scheduler.
+#
+# Install:
+#   cp deploy/newspipeline.service ~/.config/systemd/user/
+#   # edit WorkingDirectory and ExecStart to match your checkout path
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now newspipeline.service
+#   loginctl enable-linger "$USER"   # keep it running when logged out
+#
+# systemctl stop sends SIGTERM; the CLI shuts the scheduler down cleanly.
+
+[Unit]
+Description=newspipeline settings UI + scheduler
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/newspipeline
+ExecStart=%h/projects/newspipeline/.venv/bin/newspipeline serve
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
