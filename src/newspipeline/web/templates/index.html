@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>newspipeline settings</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>newspipeline <span class="version">v{{ version }}</span></h1>
+    <p class="tagline">Settings — the pipeline runs in the background; there is no dashboard by design.</p>
+  </header>
+
+  <!-- TODO(WP7): full settings forms. Scaffold renders read-only state. -->
+
+  <section>
+    <h2>Global</h2>
+    <dl>
+      <dt>LLM endpoint</dt><dd>{{ settings["global"]["api_base_url"] }}</dd>
+      <dt>Default model</dt><dd>{{ settings["global"]["default_model"] }}</dd>
+      <dt>API key</dt>
+      <dd>{% if has_api_key %}configured (hidden){% else %}<strong>not set</strong> — set NEWS_API_KEY in .env{% endif %}</dd>
+      <dt>Timezone</dt><dd>{{ settings["global"]["timezone"] }}</dd>
+      <dt>Output directory</dt><dd>{{ settings["global"]["output_dir"] }}</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Interests ({{ settings["interests"]|length }})</h2>
+    {% for interest in settings["interests"] %}
+    <article class="interest">
+      <h3>{{ interest["name"] }}</h3>
+      <p>Schedule: daily from {{ interest["start_time"] }}, every {{ interest["interval_hours"] }}h —
+         delivery: {{ interest["delivery"]|join(", ") }}</p>
+      <ul>
+        {% for feed in interest["feeds"] %}<li>{{ feed["name"] }} — {{ feed["url"] }}</li>{% endfor %}
+      </ul>
+    </article>
+    {% else %}
+    <p>No interests configured yet.</p>
+    {% endfor %}
+  </section>
+</body>
+</html>

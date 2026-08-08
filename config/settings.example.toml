@@ -1,0 +1,75 @@
+# newspipeline configuration — copy to config/settings.toml and edit,
+# or configure everything through the web UI (`newspipeline serve`).
+#
+# This file holds NO secrets. The LLM API key and SMTP password live in .env
+# and are never written here, never logged, and never shown in the UI.
+
+[global]
+# OpenAI-compatible endpoint. Default provider: OpenRouter.
+api_base_url = "https://openrouter.ai/api/v1"
+# Default model used for every pipeline stage unless overridden below.
+default_model = "deepseek/deepseek-v4-flash-latest"
+# IANA timezone used for all schedule computations.
+timezone = "Europe/Berlin"
+# Directory for the "file" delivery mode (relative to project root or absolute).
+output_dir = "output"
+
+[global.models]
+# Per-stage model overrides. Empty string = use default_model.
+analysis = ""
+generation = ""
+brief = ""
+
+[global.reasoning]
+# Optional reasoning effort ("low" | "medium" | "high"), sent to the provider
+# only when set and only for models that support it. Empty = not sent.
+effort = ""
+
+[smtp]
+# Only needed for the "email" delivery mode.
+# Password is read from .env (NEWS_SMTP_PASSWORD), never from this file.
+host = "localhost"
+port = 25
+user = ""
+sender = "newspipeline@localhost"
+
+[user]
+# Your email address — fallback recipient when an interest has no recipient set.
+email = ""
+
+# ---------------------------------------------------------------------------
+# Interests: one [[interests]] block per topic. An interest is "paused" when
+# enable_summary, enable_script and enable_brief are all false.
+# ---------------------------------------------------------------------------
+
+[[interests]]
+name = "Example"
+# Schedule: first run of the day at start_time, then every interval_hours.
+start_time = "04:00"
+interval_hours = 24          # 1..168
+max_themes = 5
+
+# Deliverable toggles and word targets.
+enable_summary = true
+target_summary_words = 750
+enable_script = false        # English YouTube script
+target_script_words = 1250
+enable_script_de = false     # German YouTube script
+target_script_de_words = 1250
+enable_brief = true          # daily brief synthesizing all themes
+target_brief_words = 600
+
+# Delivery modes: any of "file", "email".
+delivery = ["file"]
+# Recipient for email delivery; empty = fall back to [user] email.
+email_recipient = ""
+
+# How much article text to feed the LLM:
+#   full_article | headers_only | word_count
+input_data_length_mode = "full_article"
+input_word_count = 256       # used only when mode = "word_count"
+
+[[interests.feeds]]
+name = "Example Feed"
+url = "https://example.com/rss.xml"
+category = "news"

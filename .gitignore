@@ -1,0 +1,25 @@
+# Virtual environment (one per project, never committed)
+.venv/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Secrets — never commit
+.env
+
+# Local configuration (contains user data; the committed template is
+# config/settings.example.toml)
+config/settings.toml
+
+# Runtime data and pipeline output
+data/
+output/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

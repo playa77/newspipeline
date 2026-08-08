@@ -1,0 +1,51 @@
+/* newspipeline settings UI — minimal single stylesheet. version: 0.1.0 */
+
+:root {
+  --bg: #f7f7f5;
+  --fg: #1a1a1a;
+  --muted: #666;
+  --accent: #2f5fb3;
+  --card: #ffffff;
+  --border: #ddd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #e4e6eb;
+    --muted: #9a9ead;
+    --accent: #7aa2f7;
+    --card: #1d2026;
+    --border: #333;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0 auto;
+  max-width: 52rem;
+  padding: 2rem 1rem;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.5;
+}
+
+header h1 { margin-bottom: 0; }
+.version { font-size: 0.9rem; color: var(--muted); font-weight: normal; }
+.tagline { color: var(--muted); }
+
+section, .interest {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+
+dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+
+a { color: var(--accent); }
