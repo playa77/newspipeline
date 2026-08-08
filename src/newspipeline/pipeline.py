@@ -18,8 +18,17 @@ interest's `delivery` list — see emailer.py and fileout.py (WP5).
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any
+
+import feedparser
+import httpx
+import trafilatura
+
+from newspipeline.llm import LLMClient
+from newspipeline.store import Store, utcnow_iso
 
 logger = logging.getLogger(__name__)
 
@@ -61,20 +70,313 @@ def detect_language(text: str) -> str:
 class Pipeline:
     """Runs one interest through scrape → analyze → generate → brief.
 
-    TODO(WP4): implement run() and the four stage methods, ported from
-    legacy NewsPipeline with these adaptations:
+    Ported from legacy NewsPipeline with these adaptations:
     - store is store.Store (sync sqlite3) instead of NewsStore (async pg)
     - interest dict comes from settings.toml; feeds from interest["feeds"]
     - per-stage models: global.models.{analysis,generation,brief} with
       fallback to global.default_model
     - reasoning effort: global.reasoning.effort, forwarded per LLM call
+
+    Stage failures (analysis, generation, brief) are logged and swallowed —
+    a run completes with partial results rather than failing outright,
+    matching legacy behavior. Only unexpected errors outside the stage
+    bodies fail the run.
     """
 
-    def __init__(self, *, store: Any, settings: dict[str, Any], api_key: str) -> None:
+    def __init__(self, *, store: Store, settings: dict[str, Any], api_key: str) -> None:
         self._store = store
         self._settings = settings
         self._api_key = api_key
+        global_cfg = settings.get("global", {})
+        self._reasoning_effort: str | None = (
+            (global_cfg.get("reasoning") or {}).get("effort") or None
+        )
+
+    def _stage_model(self, stage: str) -> str | None:
+        """Resolve the model for a stage: per-stage override, else default."""
+        global_cfg = self._settings.get("global", {})
+        return (global_cfg.get("models") or {}).get(stage) or None
 
     async def run(self, interest: dict[str, Any]) -> int:
         """Run the full pipeline for one interest. Returns the run id."""
-        raise NotImplementedError("WP4")
+        global_cfg = self._settings.get("global", {})
+        llm = LLMClient(
+            api_key=self._api_key,
+            base_url=global_cfg.get("api_base_url", ""),
+            default_model=global_cfg.get("default_model", ""),
+        )
+        run_record = self._store.create_run(interest["name"])
+        run_id: int = run_record["id"]
+
+        try:
+            await self._scrape(run_id, interest)
+            await self._analyze(run_id, interest, llm)
+            await self._generate(run_id, interest, llm)
+            await self._brief(run_id, interest, llm)
+            self._store.update_run(run_id, status="completed", completed_at=utcnow_iso())
+            logger.info("Pipeline run %d completed — interest=%r", run_id, interest["name"])
+        except Exception as exc:
+            logger.exception("Pipeline run %d failed — interest=%r", run_id, interest["name"])
+            self._store.update_run(run_id, status="failed", error=str(exc))
+        finally:
+            await llm.close()
+
+        return run_id
+
+    async def _scrape(self, run_id: int, interest: dict[str, Any]) -> None:
+        self._store.update_run(run_id, current_stage="scrape")
+        feeds = interest.get("feeds", [])
+
+        if not feeds:
+            logger.info("No feeds configured for interest %r", interest.get("name"))
+            return
+
+        timeout = interest.get("article_fetch_timeout_seconds", 30)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(float(timeout)),
+            follow_redirects=True,
+        ) as http:
+            for feed in feeds:
+                try:
+                    # feedparser.parse is blocking; parity with legacy. Feed
+                    # fetches are sequential and local-scale, so this is fine.
+                    parsed = feedparser.parse(feed["url"])
+                    for entry in parsed.entries[:20]:
+                        url = entry.get("link", "")
+                        if not url:
+                            continue
+                        if self._store.article_exists(url):
+                            continue
+
+                        title = entry.get("title", "Untitled")
+                        published = entry.get("published", "")
+
+                        content = None
+                        content_status = "excerpt"
+                        try:
+                            resp = await http.get(url)
+                            content = trafilatura.extract(
+                                resp.text, include_comments=False, include_tables=False,
+                            )
+                            if content:
+                                content_status = "full"
+                        except Exception:
+                            content = None
+
+                        data_length_mode = interest.get("input_data_length_mode", "full_article")
+                        if data_length_mode == "headers_only" and content:
+                            content = None
+                            content_status = "excerpt"
+                        elif data_length_mode == "word_count" and content:
+                            word_limit = interest.get("input_word_count", 256)
+                            words = content.split()
+                            if len(words) > word_limit:
+                                content = " ".join(words[:word_limit])
+                                content_status = "word_count"
+
+                        self._store.insert_article(
+                            run_id=run_id,
+                            feed_name=feed["name"],
+                            url=url,
+                            title=title,
+                            author=entry.get("author"),
+                            published_at=published,
+                            excerpt=entry.get("summary"),
+                            content=content,
+                            content_status=content_status,
+                        )
+                    logger.info(
+                        "Scraped feed %r: %d entries — interest=%r",
+                        feed["name"], len(parsed.entries), interest.get("name"),
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to scrape feed %s: %s", feed["url"], exc)
+
+    async def _analyze(self, run_id: int, interest: dict[str, Any], llm: LLMClient) -> None:
+        self._store.update_run(run_id, current_stage="analyze")
+        articles = self._store.get_articles_for_run(run_id)
+        if not articles:
+            logger.info("No articles to analyze for run %d", run_id)
+            return
+
+        max_arts = interest.get("max_themes_source_articles", 30)
+        max_themes = interest.get("max_themes", 5)
+        article_texts: list[str] = []
+        for a in articles[:max_arts]:
+            body = a.get("content") or a.get("excerpt") or ""
+            if len(body) > 2000:
+                body = body[:2000]
+            article_texts.append(
+                f"Title: {a['title']}\nSource: {a.get('url', '')}\nBody: {body}"
+            )
+
+        prompt = (
+            f"Analyze the following news articles. Identify {max_themes} major themes. "
+            "For each theme, provide:\n"
+            "1. A concise title (one line)\n"
+            "2. A two-sentence description\n"
+            "3. Which article numbers are relevant\n\n"
+            "Format as JSON array:\n"
+            '[{"title": "...", "description": "...", "article_indices": [1,3,5]}, ...]\n\n'
+            "Articles:\n\n"
+        )
+        for i, text in enumerate(article_texts, 1):
+            prompt += f"[{i}] {text}\n\n"
+
+        try:
+            response = await llm.chat_completion(
+                messages=[
+                    {"role": "system", "content": "You are a news analyst. Respond only with valid JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                model=self._stage_model("analysis"),
+                temperature=0.3,
+                max_tokens=2000,
+                reasoning_effort=self._reasoning_effort,
+            )
+            match = re.search(r"\[.*\]", response, re.DOTALL)
+            if match:
+                themes = json.loads(match.group(0))
+                for i, theme in enumerate(themes[:max_themes]):
+                    self._store.insert_theme(
+                        run_id=run_id,
+                        title=theme.get("title", f"Theme {i+1}"),
+                        description=theme.get("description", ""),
+                        source_article_ids=theme.get("article_indices", []),
+                        order_index=i,
+                    )
+                logger.info(
+                    "Analyzed %d themes from %d articles — run=%d",
+                    len(themes), len(article_texts), run_id,
+                )
+        except Exception as exc:
+            logger.error("Analysis failed for run %d: %s", run_id, exc)
+
+    async def _generate(self, run_id: int, interest: dict[str, Any], llm: LLMClient) -> None:
+        self._store.update_run(run_id, current_stage="generate")
+        themes = self._store.get_themes_for_run(run_id)
+
+        enable_summary = interest.get("enable_summary", True)
+        enable_script = interest.get("enable_script", True)
+        enable_script_de = interest.get("enable_script_de", False)
+        model = self._stage_model("generation")
+
+        for theme in themes:
+            try:
+                if enable_summary:
+                    target_words = interest.get("target_summary_words", 750)
+                    prompt = (
+                        f"Write a {target_words}-word summary of this news theme:\n\n"
+                        f"Theme: {theme['title']}\n"
+                        f"Description: {theme['description']}\n\n"
+                        "Write a well-structured, journalistic summary with a headline."
+                    )
+                    response = await llm.chat_completion(
+                        messages=[
+                            {"role": "system", "content": "You are a professional journalist. Write clear, engaging summaries."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        model=model,
+                        temperature=0.5,
+                        max_tokens=2000,
+                        reasoning_effort=self._reasoning_effort,
+                    )
+                    self._store.insert_deliverable(
+                        theme_id=theme["id"], deliverable_type="summary", content=response,
+                    )
+
+                if enable_script:
+                    target_script = interest.get("target_script_words", 1250)
+                    script_prompt = (
+                        f"Write a {target_script}-word YouTube script about this news theme:\n\n"
+                        f"Theme: {theme['title']}\nContent: The theme is about {theme['description']}\n\n"
+                        "Format as a video script with intro, segments, and outro. Include speaker directions in [brackets]."
+                    )
+                    script = await llm.chat_completion(
+                        messages=[
+                            {"role": "system", "content": "You are a video script writer. Write engaging YouTube scripts."},
+                            {"role": "user", "content": script_prompt},
+                        ],
+                        model=model,
+                        temperature=0.6,
+                        max_tokens=3000,
+                        reasoning_effort=self._reasoning_effort,
+                    )
+                    self._store.insert_deliverable(
+                        theme_id=theme["id"], deliverable_type="script", content=script,
+                    )
+
+                if enable_script_de:
+                    target_script_de = interest.get("target_script_de_words", 1250)
+                    de_prompt = (
+                        f"Schreibe ein {target_script_de}-Wort YouTube-Skript auf Deutsch zu diesem Nachrichtenthema:\n\n"
+                        f"Thema: {theme['title']}\nInhalt: {theme['description']}\n\n"
+                        "Formatiere als Video-Skript mit Intro, Segmenten und Outro. "
+                        "Füge Sprecheranweisungen in [Klammern] ein. Schreibe professionell und ansprechend."
+                    )
+                    script_de = await llm.chat_completion(
+                        messages=[
+                            {"role": "system", "content": "Du bist ein professioneller Drehbuchautor. Schreibe ansprechende YouTube-Skripte auf Deutsch."},
+                            {"role": "user", "content": de_prompt},
+                        ],
+                        model=model,
+                        temperature=0.6,
+                        max_tokens=3000,
+                        reasoning_effort=self._reasoning_effort,
+                    )
+                    self._store.insert_deliverable(
+                        theme_id=theme["id"], deliverable_type="script_de", content=script_de,
+                    )
+
+                logger.info("Generated content for theme: %s", theme["title"])
+            except Exception as exc:
+                logger.error("Generation failed for theme %s: %s", theme["title"], exc)
+
+    async def _brief(self, run_id: int, interest: dict[str, Any], llm: LLMClient) -> None:
+        if not interest.get("enable_brief"):
+            return
+        self._store.update_run(run_id, current_stage="brief")
+        themes = self._store.get_themes_for_run(run_id)
+        if not themes:
+            return
+
+        theme_summaries = "\n\n".join(
+            f"## {t['title']}\n{t['description']}" for t in themes
+        )
+        target_brief = interest.get("target_brief_words", 600)
+
+        language = detect_language(theme_summaries)
+
+        try:
+            if language == "de":
+                prompt = (
+                    "Fasse diese Nachrichtenthemen zu einer täglichen Kurznachricht zusammen:\n\n"
+                    f"{theme_summaries}\n\n"
+                    f"Schreibe einen zusammenhängenden {target_brief}-Wörter-Bericht, "
+                    "der diese Themen verbindet und Zusammenhänge sowie wichtige Erkenntnisse hervorhebt. "
+                    "Schreibe auf Deutsch. Verwende deutsche Überschriften."
+                )
+                system_content = "Du bist ein Redaktionsleiter. Schreibe prägnante, aufschlussreiche tägliche Nachrichten auf Deutsch."
+            else:
+                prompt = (
+                    "Synthesize a daily news brief from these themes:\n\n"
+                    f"{theme_summaries}\n\n"
+                    f"Write a cohesive {target_brief}-word brief that ties these themes together, "
+                    "highlighting connections and key takeaways."
+                )
+                system_content = "You are an executive editor. Write concise, insightful daily briefs."
+
+            response = await llm.chat_completion(
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": prompt},
+                ],
+                model=self._stage_model("brief"),
+                temperature=0.4,
+                max_tokens=1500,
+                reasoning_effort=self._reasoning_effort,
+            )
+            self._store.insert_brief(run_id=run_id, content=response)
+            logger.info("Generated daily brief for run %d (language=%s)", run_id, language)
+        except Exception as exc:
+            logger.error("Brief generation failed for run %d: %s", run_id, exc)

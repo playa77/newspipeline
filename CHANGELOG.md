@@ -19,3 +19,15 @@ happens. Format: version heading, date, grouped bullet points.
     language detection, RSS date parsing, scheduler time math, SMTP sender
   - `tests/` skeleton with a smoke test
   - `README.md`, `WORKPACKAGES.md`, `DECISIONS.md`, this changelog
+- WP4: pipeline stages implemented in `pipeline.py` — `Pipeline.run()` and
+  the four stages (scrape → analyze → generate → brief), ported from
+  `legacy/news_pipeline.py` with the planned adaptations: sync sqlite store,
+  feeds from the interest dict, per-stage model overrides
+  (`global.models.{analysis,generation,brief}` with fallback to
+  `default_model`), reasoning effort forwarded per LLM call, and run
+  status/stage transitions recorded in the store. Verified by a full run
+  against a fixture RSS feed and a mock chat-completions endpoint (local
+  HTTP server): 2 articles scraped with full-content extraction, 2 themes,
+  summary+script deliverables per theme, a brief, run marked completed;
+  second run confirmed URL dedupe (no re-scraped articles). `pytest` smoke
+  suite: 3 passed. Formal G4/G5 guard tests land in WP9 as planned.

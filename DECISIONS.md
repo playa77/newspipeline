@@ -71,3 +71,16 @@ commit):
   this environment)
 - T3: Live OpenRouter request/response handling in `llm.py` (no API key in
   this environment)
+
+## 2026-08-08 — WP4 implementation notes (R1)
+
+- `feedparser.parse(feed_url)` is called directly with the feed URL, which
+  fetches synchronously inside the async stage. Kept for parity with legacy;
+  feed fetches are sequential and local-scale. Revisit only if feed counts
+  grow substantially.
+- A missing RSS `pubDate` is passed to the store as `""`; `parse_rss_date`
+  falls back to the current time (legacy passed now-ISO explicitly — same
+  outcome, one less code path).
+- Stage-level failures (analyze/generate/brief) are logged and swallowed so a
+  run completes with partial results, matching legacy; only errors outside
+  the stage bodies mark the run `failed`.
