@@ -149,3 +149,14 @@ commit):
 - The systemd user unit is shipped at `deploy/newspipeline.service` with
   `%h`-relative paths to adjust on install, replacing the inline README
   sketch.
+
+## 2026-08-08 — WP9 implementation notes (R1)
+
+- G3/G4 parity is tested against the actual legacy modules, imported from
+  `legacy/` via importlib (with throwaway `workbench.*` stubs for
+  `legacy/news_pipeline.py`) — not against reimplementations of the legacy
+  logic inside the tests.
+- The G1 guard test caught a real defect fixed in WP9: `config.load_env()`
+  only `setdefault`s into `os.environ`, so a new API key saved via the UI
+  was ignored by the running process until restart. `_upsert_env` now also
+  updates `os.environ`. (T1 path touched — flagged at delivery.)

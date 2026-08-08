@@ -96,3 +96,36 @@ happens. Format: version heading, date, grouped bullet points.
     unknown-interest and missing-key exits, and `serve` with a real browser
     round-trip (GET / 200, POST /run → real scheduled run completed,
     SIGTERM → scheduler stopped, exit 0). `pytest` smoke suite: 3 passed.
+- WP9: guard-test suite installed (`pytest tests/`: **21 passed**) —
+  - `tests/conftest.py`: fixture RSS feed + article pages + mock
+    chat-completions endpoint (capturing all LLM requests), fake SMTP
+    server, config-path isolation (real settings.toml/.env never touched),
+    legacy module loader
+  - `test_secrets.py::test_api_key_not_persisted_or_exposed` (G1) +
+    `test_api_key_only_in_authorization_header`: write-path guard, .env
+    permissions, key absent from settings.toml / every rendered page /
+    request URLs / request bodies / logs
+  - `test_store.py::test_article_url_dedupe` (G2) + RSS date variants
+  - `test_scheduler.py::test_next_run_*` (G3): grid semantics, tick window,
+    malformed-time fallback, missed-run grace period — including parity
+    against the actual legacy module over a start_time × interval grid
+  - `test_pipeline.py::test_detect_language_*` (G4): German/English/empty,
+    1.5x threshold boundary, parity against the actual legacy module
+  - `test_e2e.py::test_pipeline_end_to_end` (G5): full run against the
+    fixture feed + mock LLM → 2 full-content articles, 2 themes, all three
+    deliverable types per theme, brief with word count, file output
+    (brief.md + 2 theme files), cross-run dedupe; plus
+    `test_email_delivery_end_to_end` against the fake SMTP server
+  - Bug fixed (found by the G1 guard): `config._upsert_env` now updates
+    `os.environ` — previously a newly saved API key was ignored by the
+    running process until restart (T1 path touched, flagged)
+
+### Verification statement (WP9)
+
+Tested: all guarded invariants G1–G5 with the named guard tests green;
+pipeline, delivery (file + unauthenticated SMTP), scheduler, web UI, and
+CLI behavior end-to-end against local fixtures, per the WP4–WP8
+verification records above. Not tested (no live credentials/servers in this
+environment): live OpenRouter request/response behavior (T3), authenticated
+SMTP delivery — STARTTLS+LOGIN (T2), and visual/browser rendering of the
+settings UI (agent cannot see pages; human browser check pending).

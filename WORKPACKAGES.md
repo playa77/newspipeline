@@ -14,7 +14,7 @@ complete only when its guarded invariants have green guard tests.
 | WP6 | Scheduler thread | ✅ done (0.1.0 — G3 guard tests land in WP9) |
 | WP7 | Web settings UI | ✅ done (0.1.0 — human browser check pending at approval) |
 | WP8 | CLI wiring, systemd unit, README finalization | ✅ done (0.1.0) |
-| WP9 | Guard tests + end-to-end verification | ⬜ pending |
+| WP9 | Guard tests + end-to-end verification | ✅ done (0.1.0) |
 
 ---
 

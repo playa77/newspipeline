@@ -125,6 +125,9 @@ def _upsert_env(key: str, value: str) -> None:
         lines.append(f"{key}={value}")
     ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     ENV_PATH.chmod(0o600)
+    # load_env() only setdefaults into os.environ, so without this the
+    # running process would keep serving the stale value until restart.
+    os.environ[key] = value
     logger.info(".env updated — key %s written (value not logged)", key)
 
 

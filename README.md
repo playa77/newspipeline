@@ -8,8 +8,8 @@ desktop with a built-in scheduler and a minimal local settings UI.
 Extracted from a larger monolithic project (see `legacy/`, read-only
 reference). Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.1.0** — fully implemented; the formal guard-test suite (WP9)
-> is still pending. See [WORKPACKAGES.md](WORKPACKAGES.md) for the plan and
+> Status: **0.1.0** — fully implemented; guard-test suite green
+> (`pytest tests/`). See [WORKPACKAGES.md](WORKPACKAGES.md) for the plan and
 > per-package state.
 
 ## Features
@@ -118,6 +118,11 @@ a fresh history (see DECISIONS.md D5).
 ```bash
 pytest tests/ -v
 ```
+
+The suite includes the guard tests for invariants G1–G5 (secrets, URL
+dedupe, scheduler semantics, language detection, end-to-end run) defined in
+DECISIONS.md; tests run entirely against local fixtures and never touch the
+real `config/settings.toml`, `.env`, or `data/news.db`.
 
 Project decisions and invariants: [DECISIONS.md](DECISIONS.md).
 Changes: [CHANGELOG.md](CHANGELOG.md).
