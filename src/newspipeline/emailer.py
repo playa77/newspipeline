@@ -15,8 +15,11 @@ from __future__ import annotations
 import logging
 import smtplib
 import time
+from datetime import UTC, datetime
 from email.mime.text import MIMEText
 from typing import Any
+
+from newspipeline.config import get_smtp_password
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +84,69 @@ def send_pipeline_results(
 ) -> int:
     """Send the daily brief and per-theme deliverable emails for a run.
 
-    Returns the number of emails sent.
-
-    TODO(WP5): implement — port from legacy send_pipeline_results:
-    brief email when enable_brief, one email per theme containing the enabled
-    deliverables (summary / script / script_de).
+    Ported from legacy send_pipeline_results: one brief email when
+    ``enable_brief``, then one email per theme containing the enabled
+    deliverables (summary / script / script_de). Returns the number of
+    emails sent.
     """
-    raise NotImplementedError("WP5")
+    emails_sent = 0
+
+    run = store.get_run(run_id)
+    run_date = run.get("run_date", "") if run else ""
+    name = interest.get("name", "Interest")
+
+    smtp_kwargs: dict[str, Any] = {
+        "smtp_host": smtp_config.get("host", "localhost"),
+        "smtp_port": smtp_config.get("port", 25),
+        "smtp_user": smtp_config.get("user", ""),
+        "smtp_password": get_smtp_password(),
+        "sender": smtp_config.get("sender", "newspipeline@localhost"),
+        "recipient": recipient,
+    }
+
+    if interest.get("enable_brief"):
+        brief = store.get_brief_for_run(run_id)
+        if brief:
+            send_email(
+                **smtp_kwargs,
+                subject=f"{name} Daily Brief — {run_date}",
+                body=brief.get("content", ""),
+            )
+            emails_sent += 1
+
+    for theme in store.get_themes_for_run(run_id):
+        summary = script = script_de = None
+        for d in store.get_deliverables_for_theme(theme.get("id", 0)):
+            dtype = d.get("deliverable_type", "")
+            if dtype == "summary" and interest.get("enable_summary"):
+                summary = d.get("content")
+            elif dtype == "script" and interest.get("enable_script"):
+                script = d.get("content")
+            elif dtype == "script_de" and interest.get("enable_script_de"):
+                script_de = d.get("content")
+
+        parts: list[str] = []
+        if summary:
+            parts.append(f"=== SUMMARY ===\n{summary}")
+        if script:
+            parts.append(f"=== SCRIPT (EN) ===\n{script}")
+        if script_de:
+            parts.append(f"=== SCRIPT (DE) ===\n{script_de}")
+        if not parts:
+            continue
+
+        send_email(
+            **smtp_kwargs,
+            subject=f"{name} Theme: {theme.get('title', 'Untitled')} — {run_date}",
+            body="\n\n".join(parts),
+        )
+        emails_sent += 1
+
+    logger.info(
+        "Pipeline result emails sent — %d email(s) for run %d, interest=%r",
+        emails_sent, run_id, name,
+    )
+    return emails_sent
 
 
 def send_failure_alert(
@@ -98,8 +157,19 @@ def send_failure_alert(
     smtp_config: dict[str, Any],
     recipient: str,
 ) -> None:
-    """Send a failure-alert email for a pipeline error.
-
-    TODO(WP5): implement — port from legacy send_failure_alert.
-    """
-    raise NotImplementedError("WP5")
+    """Send a failure-alert email for a pipeline error (ported from legacy)."""
+    date = datetime.now(UTC).strftime("%Y-%m-%d")
+    send_email(
+        smtp_host=smtp_config.get("host", "localhost"),
+        smtp_port=smtp_config.get("port", 25),
+        smtp_user=smtp_config.get("user", ""),
+        smtp_password=get_smtp_password(),
+        sender=smtp_config.get("sender", "newspipeline@localhost"),
+        recipient=recipient,
+        subject=f"{interest_name} Pipeline FAILURE — {stage_name} — {date}",
+        body=f"Stage: {stage_name}\nError: {error_message}\n",
+    )
+    logger.info(
+        "Failure alert email sent — interest=%r stage=%s date=%s",
+        interest_name, stage_name, date,
+    )

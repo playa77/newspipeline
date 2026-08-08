@@ -10,7 +10,7 @@ complete only when its guarded invariants have green guard tests.
 | WP2 | SQLite store | ✅ done (0.1.0, scaffold level — guard tests in WP9) |
 | WP3 | LLM client | ✅ done (0.1.0, scaffold level — live calls untestable, T3) |
 | WP4 | Pipeline stages | ✅ done (0.1.0 — guard tests G4/G5 land in WP9) |
-| WP5 | Delivery: email + local file | ⬜ pending |
+| WP5 | Delivery: email + local file | ✅ done (0.1.0 — live SMTP paths T2) |
 | WP6 | Scheduler thread | ⬜ pending |
 | WP7 | Web settings UI | ⬜ pending |
 | WP8 | CLI wiring, systemd unit, README finalization | ⬜ pending |

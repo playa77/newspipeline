@@ -84,3 +84,20 @@ commit):
 - Stage-level failures (analyze/generate/brief) are logged and swallowed so a
   run completes with partial results, matching legacy; only errors outside
   the stage bodies mark the run `failed`.
+
+## 2026-08-08 — WP5 implementation notes (R1)
+
+- Delivery dispatch lives in a new small module `delivery.py` (not planned in
+  the scaffold) so the CLI (WP8) and scheduler (WP6) share one dispatch path
+  instead of duplicating mode/recipient logic.
+- Failure alerts are sent regardless of the interest's `delivery` modes: a
+  failed run produces no output to deliver, so the mode list is treated as
+  inapplicable to alerts. Rejected alternative: alerts only when "email" is
+  in `delivery` — would silently hide failures from file-only interests.
+- The legacy failure alert included a traceback; the scaffold's
+  `send_failure_alert` signature (stage + error message) was kept instead.
+  The full exception is already in the log via `logger.exception` in
+  `Pipeline.run`.
+- Email/file delivery functions are synchronous (smtplib and file writes are
+  blocking). Callers on an event loop (scheduler, WP6) must run them in an
+  executor; noted here so WP6 does not block the loop.

@@ -31,3 +31,19 @@ happens. Format: version heading, date, grouped bullet points.
   summary+script deliverables per theme, a brief, run marked completed;
   second run confirmed URL dedupe (no re-scraped articles). `pytest` smoke
   suite: 3 passed. Formal G4/G5 guard tests land in WP9 as planned.
+- WP5: delivery implemented —
+  - `emailer.py`: `send_pipeline_results` (brief email + per-theme emails
+    with the enabled deliverables) and `send_failure_alert`, ported from
+    `legacy/news_emailer.py`; SMTP password from .env via
+    `config.get_smtp_password()` (G1)
+  - `fileout.py`: `write_run_output` writes `brief.md` and one markdown file
+    per theme under `<output_dir>/<interest-slug>/<run-date>/`
+  - `delivery.py` (new): `deliver_run` dispatch driven by
+    `interest.delivery`, recipient resolution (interest `email_recipient`,
+    else `[user] email`), and `deliver_failure_alert`
+  - Verified end-to-end against the fixture feed + mock LLM plus a
+    hand-rolled local SMTP server: file output (brief + theme files,
+    correct headings, disabled script_de omitted), 2 result emails + 1
+    failure alert captured with correct recipients/subjects/bodies,
+    no-recipient paths skip with a warning. `pytest` smoke suite: 3 passed.
+    Authenticated SMTP (STARTTLS+LOGIN) untested locally — T2.
