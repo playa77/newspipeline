@@ -12,34 +12,208 @@
     <p class="tagline">Settings — the pipeline runs in the background; there is no dashboard by design.</p>
   </header>
 
-  <!-- TODO(WP7): full settings forms. Scaffold renders read-only state. -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <p class="flash flash-{{ category }}">{{ message }}</p>
+    {% endfor %}
+  {% endwith %}
 
   <section>
     <h2>Global</h2>
-    <dl>
-      <dt>LLM endpoint</dt><dd>{{ settings["global"]["api_base_url"] }}</dd>
-      <dt>Default model</dt><dd>{{ settings["global"]["default_model"] }}</dd>
-      <dt>API key</dt>
-      <dd>{% if has_api_key %}configured (hidden){% else %}<strong>not set</strong> — set NEWS_API_KEY in .env{% endif %}</dd>
-      <dt>Timezone</dt><dd>{{ settings["global"]["timezone"] }}</dd>
-      <dt>Output directory</dt><dd>{{ settings["global"]["output_dir"] }}</dd>
-    </dl>
+    <form method="post" action="{{ url_for('save_global') }}">
+      <dl class="form">
+        <dt><label for="api_base_url">LLM endpoint</label></dt>
+        <dd><input id="api_base_url" name="api_base_url" value="{{ settings['global']['api_base_url'] }}"></dd>
+        <dt><label for="default_model">Default model</label></dt>
+        <dd><input id="default_model" name="default_model" value="{{ settings['global']['default_model'] }}"></dd>
+        <dt><label for="model_analysis">Analysis model</label></dt>
+        <dd><input id="model_analysis" name="model_analysis" value="{{ settings['global']['models']['analysis'] }}" placeholder="empty = default model"></dd>
+        <dt><label for="model_generation">Generation model</label></dt>
+        <dd><input id="model_generation" name="model_generation" value="{{ settings['global']['models']['generation'] }}" placeholder="empty = default model"></dd>
+        <dt><label for="model_brief">Brief model</label></dt>
+        <dd><input id="model_brief" name="model_brief" value="{{ settings['global']['models']['brief'] }}" placeholder="empty = default model"></dd>
+        <dt><label for="reasoning_effort">Reasoning effort</label></dt>
+        <dd>
+          <select id="reasoning_effort" name="reasoning_effort">
+            {% for opt in ["", "low", "medium", "high"] %}
+            <option value="{{ opt }}" {% if settings['global']['reasoning']['effort'] == opt %}selected{% endif %}>{{ opt or "(not sent)" }}</option>
+            {% endfor %}
+          </select>
+        </dd>
+        <dt><label for="timezone">Timezone</label></dt>
+        <dd><input id="timezone" name="timezone" value="{{ settings['global']['timezone'] }}"></dd>
+        <dt><label for="output_dir">Output directory</label></dt>
+        <dd><input id="output_dir" name="output_dir" value="{{ settings['global']['output_dir'] }}"></dd>
+
+        <dt class="group">SMTP</dt><dd class="group"></dd>
+        <dt><label for="smtp_host">Host</label></dt>
+        <dd><input id="smtp_host" name="smtp_host" value="{{ settings['smtp']['host'] }}"></dd>
+        <dt><label for="smtp_port">Port</label></dt>
+        <dd><input id="smtp_port" name="smtp_port" value="{{ settings['smtp']['port'] }}"></dd>
+        <dt><label for="smtp_user">User</label></dt>
+        <dd><input id="smtp_user" name="smtp_user" value="{{ settings['smtp']['user'] }}" placeholder="empty = no auth"></dd>
+        <dt><label for="smtp_sender">Sender</label></dt>
+        <dd><input id="smtp_sender" name="smtp_sender" value="{{ settings['smtp']['sender'] }}"></dd>
+
+        <dt class="group">User</dt><dd class="group"></dd>
+        <dt><label for="user_email">Fallback email</label></dt>
+        <dd><input id="user_email" name="user_email" value="{{ settings['user']['email'] }}"></dd>
+      </dl>
+      <button type="submit">Save global settings</button>
+    </form>
   </section>
 
   <section>
-    <h2>Interests ({{ settings["interests"]|length }})</h2>
-    {% for interest in settings["interests"] %}
+    <h2>API key</h2>
+    <p>Status:
+      {% if has_api_key %}<strong>configured</strong> (value never shown)
+      {% else %}<strong>not set</strong>{% endif %}
+      — the key is stored in <code>.env</code>, never in settings.toml.</p>
+    <form method="post" action="{{ url_for('save_api_key') }}" class="inline">
+      <input type="password" name="api_key" placeholder="Enter new key" autocomplete="new-password">
+      <button type="submit">Save API key</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Interests ({{ settings['interests']|length }})</h2>
+    {% for interest in settings['interests'] %}
     <article class="interest">
-      <h3>{{ interest["name"] }}</h3>
-      <p>Schedule: daily from {{ interest["start_time"] }}, every {{ interest["interval_hours"] }}h —
-         delivery: {{ interest["delivery"]|join(", ") }}</p>
-      <ul>
-        {% for feed in interest["feeds"] %}<li>{{ feed["name"] }} — {{ feed["url"] }}</li>{% endfor %}
+      <h3>
+        {{ interest['name'] }}
+        {% if is_paused(interest) %}<span class="badge">paused</span>{% endif %}
+      </h3>
+      <form method="post" action="{{ url_for('interest_save', name=interest['name']) }}">
+        <dl class="form">
+          <dt><label>Name</label></dt>
+          <dd><input name="name" value="{{ interest['name'] }}"></dd>
+          <dt><label>Schedule</label></dt>
+          <dd>
+            from <input name="start_time" class="narrow" value="{{ interest['start_time'] }}" placeholder="HH:MM">
+            every <input name="interval_hours" class="narrow" type="number" min="1" max="168" value="{{ interest['interval_hours'] }}"> h
+          </dd>
+          <dt><label>Max themes</label></dt>
+          <dd><input name="max_themes" class="narrow" type="number" min="1" value="{{ interest.get('max_themes', 5) }}"></dd>
+          <dt><label>Deliverables</label></dt>
+          <dd>
+            <label><input type="checkbox" name="enable_summary" {% if interest.get('enable_summary') %}checked{% endif %}> summary</label>
+            <input name="target_summary_words" class="narrow" type="number" value="{{ interest.get('target_summary_words', 750) }}"> words
+            <label><input type="checkbox" name="enable_script" {% if interest.get('enable_script') %}checked{% endif %}> script EN</label>
+            <input name="target_script_words" class="narrow" type="number" value="{{ interest.get('target_script_words', 1250) }}"> words
+            <label><input type="checkbox" name="enable_script_de" {% if interest.get('enable_script_de') %}checked{% endif %}> script DE</label>
+            <input name="target_script_de_words" class="narrow" type="number" value="{{ interest.get('target_script_de_words', 1250) }}"> words
+            <label><input type="checkbox" name="enable_brief" {% if interest.get('enable_brief') %}checked{% endif %}> brief</label>
+            <input name="target_brief_words" class="narrow" type="number" value="{{ interest.get('target_brief_words', 600) }}"> words
+          </dd>
+          <dt><label>Input length</label></dt>
+          <dd>
+            <select name="input_data_length_mode">
+              {% for mode in ["full_article", "headers_only", "word_count"] %}
+              <option value="{{ mode }}" {% if interest.get('input_data_length_mode') == mode %}selected{% endif %}>{{ mode }}</option>
+              {% endfor %}
+            </select>
+            <input name="input_word_count" class="narrow" type="number" value="{{ interest.get('input_word_count', 256) }}"> words (word_count mode)
+          </dd>
+          <dt><label>Delivery</label></dt>
+          <dd>
+            <label><input type="checkbox" name="delivery_file" {% if 'file' in interest.get('delivery', []) %}checked{% endif %}> file</label>
+            <label><input type="checkbox" name="delivery_email" {% if 'email' in interest.get('delivery', []) %}checked{% endif %}> email</label>
+            recipient <input name="email_recipient" value="{{ interest.get('email_recipient', '') }}" placeholder="empty = fallback email">
+          </dd>
+        </dl>
+        <button type="submit">Save</button>
+      </form>
+
+      <h4>Feeds ({{ interest.get('feeds', [])|length }})</h4>
+      <ul class="feeds">
+        {% for feed in interest.get('feeds', []) %}
+        <li>
+          {{ feed['name'] }} — <code>{{ feed['url'] }}</code>{% if feed.get('category') %} ({{ feed['category'] }}){% endif %}
+          <form method="post" action="{{ url_for('feed_delete', name=interest['name'], index=loop.index0) }}" class="inline">
+            <button type="submit" class="danger">remove</button>
+          </form>
+        </li>
+        {% endfor %}
       </ul>
+      <form method="post" action="{{ url_for('feed_new', name=interest['name']) }}" class="inline">
+        <input name="feed_name" placeholder="Feed name">
+        <input name="feed_url" placeholder="https://…/rss.xml">
+        <input name="feed_category" class="narrow" placeholder="category">
+        <button type="submit">Add feed</button>
+      </form>
+
+      <h4>Actions</h4>
+      <form method="post" action="{{ url_for('run_now', name=interest['name']) }}" class="inline">
+        <button type="submit" {% if not scheduler_running %}disabled title="scheduler not running"{% endif %}>Run now</button>
+      </form>
+      <form method="post" action="{{ url_for('interest_delete', name=interest['name']) }}" class="inline"
+            onsubmit="return confirm('Delete interest {{ interest['name'] }}?');">
+        <button type="submit" class="danger">Delete interest</button>
+      </form>
+
+      {% set runs = runs_by_interest.get(interest['name'], []) %}
+      {% if runs %}
+      <h4>Recent runs</h4>
+      <table>
+        <tr><th>id</th><th>status</th><th>stage</th><th>started</th><th>finished</th><th>error</th></tr>
+        {% for run in runs %}
+        <tr>
+          <td>{{ run['id'] }}</td>
+          <td class="status-{{ run['status'] }}">{{ run['status'] }}</td>
+          <td>{{ run['current_stage'] or '—' }}</td>
+          <td>{{ run['started_at'] }}</td>
+          <td>{{ run['completed_at'] or '—' }}</td>
+          <td>{{ run['error'] or '' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
     </article>
     {% else %}
     <p>No interests configured yet.</p>
     {% endfor %}
+
+    <h3>Add interest</h3>
+    <form method="post" action="{{ url_for('interest_new') }}">
+      <dl class="form">
+        <dt><label>Name</label></dt>
+        <dd><input name="name" required></dd>
+        <dt><label>Schedule</label></dt>
+        <dd>
+          from <input name="start_time" class="narrow" value="04:00" placeholder="HH:MM">
+          every <input name="interval_hours" class="narrow" type="number" min="1" max="168" value="24"> h
+        </dd>
+        <dt><label>Max themes</label></dt>
+        <dd><input name="max_themes" class="narrow" type="number" min="1" value="5"></dd>
+        <dt><label>Deliverables</label></dt>
+        <dd>
+          <label><input type="checkbox" name="enable_summary" checked> summary</label>
+          <input name="target_summary_words" class="narrow" type="number" value="750"> words
+          <label><input type="checkbox" name="enable_script"> script EN</label>
+          <input name="target_script_words" class="narrow" type="number" value="1250"> words
+          <label><input type="checkbox" name="enable_script_de"> script DE</label>
+          <input name="target_script_de_words" class="narrow" type="number" value="1250"> words
+          <label><input type="checkbox" name="enable_brief" checked> brief</label>
+          <input name="target_brief_words" class="narrow" type="number" value="600"> words
+        </dd>
+        <dt><label>Input length</label></dt>
+        <dd>
+          <select name="input_data_length_mode">
+            <option value="full_article">full_article</option>
+            <option value="headers_only">headers_only</option>
+            <option value="word_count">word_count</option>
+          </select>
+          <input name="input_word_count" class="narrow" type="number" value="256"> words (word_count mode)
+        </dd>
+        <dt><label>Delivery</label></dt>
+        <dd>
+          <label><input type="checkbox" name="delivery_file" checked> file</label>
+          <label><input type="checkbox" name="delivery_email"> email</label>
+          recipient <input name="email_recipient" placeholder="empty = fallback email">
+        </dd>
+      </dl>
+      <button type="submit">Add interest</button>
+    </form>
   </section>
 </body>
 </html>

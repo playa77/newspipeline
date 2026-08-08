@@ -12,7 +12,7 @@ complete only when its guarded invariants have green guard tests.
 | WP4 | Pipeline stages | ✅ done (0.1.0 — guard tests G4/G5 land in WP9) |
 | WP5 | Delivery: email + local file | ✅ done (0.1.0 — live SMTP paths T2) |
 | WP6 | Scheduler thread | ✅ done (0.1.0 — G3 guard tests land in WP9) |
-| WP7 | Web settings UI | ⬜ pending |
+| WP7 | Web settings UI | ✅ done (0.1.0 — human browser check pending at approval) |
 | WP8 | CLI wiring, systemd unit, README finalization | ⬜ pending |
 | WP9 | Guard tests + end-to-end verification | ⬜ pending |
 

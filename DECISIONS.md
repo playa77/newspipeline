@@ -121,3 +121,17 @@ commit):
   pipeline runs are logged and cancelled with the loop rather than awaited.
   Signal handlers that call `stop()` are installed by the CLI `serve`
   command (WP8), not by the scheduler itself.
+
+## 2026-08-08 — WP7 implementation notes (R1)
+
+- The scaffold's planned `GET /status/<name>` route was dropped: the last 5
+  runs per interest are rendered inline on the index page instead. One page
+  less, same information; still no dashboard.
+- `create_app(store=None, scheduler=None)` takes both as injectable
+  dependencies (defaults: a real `Store()`, no scheduler). The CLI (WP8)
+  wires the live `SchedulerThread`; tests inject fakes. With no scheduler,
+  "run now" is disabled in the UI and the route flashes an error.
+- Flask `secret_key` is random per process — it only signs flash-message
+  cookies, and a local single-user app has no session persistence need.
+- Feeds are add/remove only (no in-place edit); an edit is a remove plus an
+  add. Keeps the form surface minimal.

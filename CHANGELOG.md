@@ -61,3 +61,19 @@ happens. Format: version heading, date, grouped bullet points.
   interest, paused interest, stale 'running' row), file delivery executed
   from the scheduler path, clean stop with joined threads. `pytest` smoke
   suite: 3 passed. G3 time-math guard tests land in WP9 as planned.
+- WP7: web settings UI implemented — `web/app.py` routes and a full
+  `index.html` form surface: global settings (endpoint, default model,
+  per-stage models, reasoning effort, timezone, output dir), SMTP, fallback
+  user email, write-only API key entry (shows configured/not-set only — G1),
+  interest CRUD with schedule editing and deliverable/delivery toggles, feed
+  add/remove, "run now" via the scheduler thread, and the last 5 runs per
+  interest rendered inline from the store (no separate status page — see
+  DECISIONS.md). Validation is hand-rolled (D2) with flash errors that leave
+  settings.toml untouched. Verified with the Flask test client against
+  redirected config paths (real settings.toml/.env untouched): round-trip of
+  every settings.toml field, API key written to .env and present in no
+  rendered page nor in settings.toml, duplicate/invalid interest rejection,
+  rename with D5 history warning, feed CRUD, run-now success and all error
+  paths, run status rendering. `pytest` smoke suite: 3 passed. Not covered:
+  visual/browser rendering — the agent cannot see pages; a human browser
+  check is pending at task approval.
