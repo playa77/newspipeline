@@ -101,3 +101,23 @@ commit):
 - Email/file delivery functions are synchronous (smtplib and file writes are
   blocking). Callers on an event loop (scheduler, WP6) must run them in an
   executor; noted here so WP6 does not block the loop.
+
+## 2026-08-08 — WP6 implementation notes (R1)
+
+- `SchedulerThread.__init__` takes `store` plus injectable `get_settings` /
+  `get_api_key` callables (defaults: `config.load_settings` /
+  `config.get_api_key`) instead of the scaffold's fixed `timezone` parameter.
+  Settings — including the timezone — are re-read on every tick, so edits
+  made through the web UI (WP7) take effect without a restart.
+- Concurrency guard is two-layered, as in legacy: in-memory task registry
+  plus `store.is_interest_running`. Inherited limitation, accepted: a run row
+  stuck in 'running' state (killed process) blocks that interest until the
+  row is repaired. No automatic stale-run recovery was added.
+- Catch-up semantics confirmed in the live smoke run: with a daily interest,
+  starting the app fires the most recent missed slot even from a previous
+  day (legacy `_find_most_recent_missed` behavior). This means every app
+  start can trigger a run for daily interests — intended catch-up, not a bug.
+- `stop()` cancels the check/catch-up tasks and closes the loop; in-flight
+  pipeline runs are logged and cancelled with the loop rather than awaited.
+  Signal handlers that call `stop()` are installed by the CLI `serve`
+  command (WP8), not by the scheduler itself.

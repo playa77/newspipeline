@@ -47,3 +47,17 @@ happens. Format: version heading, date, grouped bullet points.
     failure alert captured with correct recipients/subjects/bodies,
     no-recipient paths skip with a warning. `pytest` smoke suite: 3 passed.
     Authenticated SMTP (STARTTLS+LOGIN) untested locally — T2.
+- WP6: `SchedulerThread` implemented — daemon thread hosting its own asyncio
+  loop; 60s check loop with the legacy 65s tick window; startup catch-up via
+  `find_most_recent_missed`; two-layer per-interest concurrency guard
+  (in-memory task registry + `store.is_interest_running`); thread-safe
+  `trigger_now(name)` returning "" or an error message; settings (including
+  timezone) re-read every tick so UI edits apply without restart; pipeline
+  and delivery wired per run, with blocking delivery dispatched to an
+  executor; idempotent `start()`/`stop()` (signal handlers are installed by
+  the CLI in WP8). Verified live against the fixture feed + mock LLM:
+  catch-up-only fire (1 run), tick-window fire (+1 catch-up = 2 runs),
+  `trigger_now` success and all guard messages (duplicate trigger, unknown
+  interest, paused interest, stale 'running' row), file delivery executed
+  from the scheduler path, clean stop with joined threads. `pytest` smoke
+  suite: 3 passed. G3 time-math guard tests land in WP9 as planned.
