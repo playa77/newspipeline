@@ -262,3 +262,30 @@ hostname-mismatched authenticated relays now fail loudly instead of
 connecting. Rejected alternative: opt-in flag to disable verification —
 rejected as a footgun; users needing it can pin the relay in an
 OS-level trust store.
+
+## 2026-08-24 — R2: Atomic config writes + mutation lock; G1 secret scan hardened (step 3 of the refactor)
+
+- `save_settings` and `_upsert_env` now write via tmp file + `os.replace`
+  (`_atomic_write_text`). Motivation: the scheduler re-reads settings.toml
+  every tick and Flask threads serve concurrently; a plain in-place write
+  exposed readers to torn files, and overlapping UI POSTs lost updates.
+  `config.mutation_lock` (an RLock — internal `_upsert_env` acquisition plus
+  route-level RMW cycles must not deadlock) serializes read-modify-write;
+  readers stay lock-free because replace is atomic. Modes are explicit:
+  settings.toml 0644 (previous umask-default), .env 0600. Directory-entry
+  fsync after replace deliberately omitted: worst case on power loss is
+  reverting to the previous file, acceptable for a desktop app.
+- G1 hardening found during review: the old secret scan tested
+  `secret in repr(settings)`, which repr/TOML escaping defeats for secrets
+  containing quotes or backslashes. The scan now walks the settings' string
+  leaf values directly. Guarded by
+  tests/test_config_atomic.py::test_secret_scan_catches_escaping_secrets.
+- Follow-up from the same review: `_upsert_env` silently corrupted secrets
+  containing newlines (line-based parser truncates on read, tail parsed as
+  junk keys). Multi-line values are now refused with ValueError; guarded by
+  test_env_values_with_newlines_are_rejected.
+- Torn-write guard: test_concurrent_writers_never_expose_torn_file runs
+  reader threads against live concurrent saves; sensitivity verified by
+  reverting to plain write_text locally (guard fails 3/3). Rejected
+  alternative for lost updates between two browser tabs: optimistic
+  versioning/ETags — overkill for a single-user local UI.

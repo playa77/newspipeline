@@ -44,12 +44,20 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   starttls→login→send order (new invariant G7). Review PASS. Behavioral
   delta (self-signed authenticated relays now fail loudly) logged in
   CHANGELOG.md and accepted.
-- HI-3 [OPEN] config.py:74 writes settings.toml in place (`write_text`) —
+- HI-3 [FIXED — commit step 3; T1 diff approved by human] config.py:74 writes settings.toml in place (`write_text`) —
   a reader (scheduler tick re-reads settings every 60s; Flask threads serve
   concurrently) can observe a torn file; web routes do unlocked
   load→mutate→save cycles so two overlapping POSTs lose updates. Fix
   direction: atomic tmp-file + `os.replace`, plus a module-level mutation
   lock held across load→save cycles in the web layer.
+  Resolution: `_atomic_write_text` for settings.toml (0644) and .env (0600);
+  RLock `config.mutation_lock` around all six mutating routes + _upsert_env;
+  G1 scan hardened to string-leaf walk (repr escaping defeated the old
+  check); newline .env values now refused instead of silently corrupted.
+  Torn-read guard test with live readers, sensitivity verified 3/3 against
+  reverted write path. Review pass 2 PASS (residual LOWs accepted:
+  dict keys unscanned by secret scan — schema-controlled; dir-fsync omitted
+  on power-loss tradeoff; temp-hygiene test covers settings path only).
 - HI-4 [OPEN] scheduler.py `_launch` starts runs without checking that an
   API key is configured (cli.py:108 checks). With no key, every scheduled
   slot produces a guaranteed-failed run row plus a failure-alert attempt —
@@ -93,6 +101,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 |---|-------|-------|----------------|--------|
 | 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | b774bb4 |
 | 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | 0ccf799 |
-| 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | (below) |
+| 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | 1d53097+532649c |
+| 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | (below) |
 
-M2 after step 2: `grep -c "\[OPEN\]"` = 4.
+M2 after step 3: `grep -c "\[OPEN\]"` = 3.

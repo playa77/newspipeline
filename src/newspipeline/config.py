@@ -16,13 +16,23 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
+import threading
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import tomli_w
 
 logger = logging.getLogger(__name__)
+
+# Serializes read-modify-write cycles on settings.toml / .env across the
+# Flask threads (web UI POSTs) and guards against interleaved writers.
+# RLock, not Lock: config functions take it internally (_upsert_env), so a
+# caller holding it across load→save cycles that also touches credentials
+# must not deadlock. Readers (scheduler tick) need no lock: writes replace
+# the file atomically, so they see a complete old or new version.
+mutation_lock = threading.RLock()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.toml"
@@ -64,14 +74,54 @@ def load_settings() -> dict[str, Any]:
     return merged
 
 
+def _iter_string_leaves(obj: Any) -> Iterator[str]:
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _iter_string_leaves(value)
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            yield from _iter_string_leaves(value)
+
+
+def _atomic_write_text(path: Path, text: str, mode: int) -> None:
+    """Replace ``path`` with ``text`` atomically (tmp file + os.replace).
+
+    Readers on another thread see either the complete previous file or the
+    complete new one — never a torn write; a crash mid-write leaves the
+    previous version intact. ``mode`` is applied explicitly because mkstemp
+    creates 0600 regardless of umask.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
 def save_settings(settings: dict[str, Any]) -> None:
-    """Write settings.toml. Secrets are refused — G1 guard at the write path."""
-    serialized = repr(settings)
+    """Write settings.toml atomically (tmp file + os.replace).
+
+    Readers never observe a torn file; a crash mid-write leaves the previous
+    version intact. Secrets are refused — G1 guard at the write path.
+    """
+    # Scan actual string values, not repr(): repr/TOML escaping hides a
+    # secret containing quotes, backslashes or newlines from a substring
+    # check against serialized output.
+    leaves = list(_iter_string_leaves(settings))
     for secret in (get_api_key(), get_smtp_password()):
-        if secret and secret in serialized:
+        if secret and any(secret in leaf for leaf in leaves):
             raise ValueError("Refusing to persist a secret value to settings.toml")
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(tomli_w.dumps(settings), encoding="utf-8")
+    text = tomli_w.dumps(settings)
+    _atomic_write_text(SETTINGS_PATH, text, 0o644)
     logger.info("settings.toml saved (%d interests)", len(settings.get("interests", [])))
 
 
@@ -113,22 +163,29 @@ def set_smtp_password(password: str) -> None:
 
 
 def _upsert_env(key: str, value: str) -> None:
-    lines: list[str] = []
-    if ENV_PATH.exists():
-        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
-    replaced = False
-    for i, line in enumerate(lines):
-        if line.strip().startswith(f"{key}="):
-            lines[i] = f"{key}={value}"
-            replaced = True
-    if not replaced:
-        lines.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    ENV_PATH.chmod(0o600)
-    # load_env() only setdefaults into os.environ, so without this the
-    # running process would keep serving the stale value until restart.
-    os.environ[key] = value
-    logger.info(".env updated — key %s written (value not logged)", key)
+    if "\n" in value or "\r" in value:
+        # The .env parser is line-based; a multi-line value would be
+        # silently truncated on read and its tail parsed as junk keys.
+        raise ValueError(f"Value for {key} must not contain newlines")
+    with mutation_lock:
+        lines: list[str] = []
+        if ENV_PATH.exists():
+            lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
+        replaced = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f"{key}="):
+                lines[i] = f"{key}={value}"
+                replaced = True
+        if not replaced:
+            lines.append(f"{key}={value}")
+        # Atomic replace, like settings.toml: unlocked readers (load_env via
+        # get_api_key during a run) must never see truncated .env content,
+        # and a crash mid-write must not destroy the existing secrets file.
+        _atomic_write_text(ENV_PATH, "\n".join(lines) + "\n", 0o600)
+        # load_env() only setdefaults into os.environ, so without this the
+        # running process would keep serving the stale value until restart.
+        os.environ[key] = value
+        logger.info(".env updated — key %s written (value not logged)", key)
 
 
 def has_api_key() -> bool:

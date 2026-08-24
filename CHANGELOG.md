@@ -7,6 +7,14 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- `config/settings.toml` and `.env` are now written atomically
+  (tmp file + `os.replace`); readers can never observe a torn file and a
+  crash mid-write preserves the previous version. Web UI save routes hold
+  a mutation lock so overlapping POSTs cannot lose updates.
+- G1 write-path guard hardened: secrets are now detected inside string
+  values regardless of escaping (the old `repr()` substring scan missed
+  secrets containing quotes or backslashes). Multi-line values are refused
+  for `.env` keys instead of being silently corrupted.
 - Authenticated SMTP now upgrades with a **certificate-verifying** TLS
   context (`ssl.create_default_context()`); previously `starttls()` used
   smtplib's non-verifying default. Behavioral delta: authenticated relays

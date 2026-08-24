@@ -109,32 +109,35 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
 
     @app.post("/settings/global")
     def save_global():
-        settings = config.load_settings()
         form = request.form
         try:
             smtp_port = int(form.get("smtp_port", "25").strip())
         except ValueError:
             flash("SMTP port must be a number", "error")
             return redirect(url_for("index"))
-        settings["global"].update({
-            "api_base_url": form.get("api_base_url", "").strip(),
-            "default_model": form.get("default_model", "").strip(),
-            "timezone": form.get("timezone", "").strip(),
-            "output_dir": form.get("output_dir", "").strip(),
-            "models": {
-                stage: form.get(f"model_{stage}", "").strip()
-                for stage in ("analysis", "generation", "brief")
-            },
-            "reasoning": {"effort": form.get("reasoning_effort", "").strip()},
-        })
-        settings["smtp"].update({
-            "host": form.get("smtp_host", "").strip(),
-            "port": smtp_port,
-            "user": form.get("smtp_user", "").strip(),
-            "sender": form.get("smtp_sender", "").strip(),
-        })
-        settings["user"]["email"] = form.get("user_email", "").strip()
-        config.save_settings(settings)
+        # Load→mutate→save cycles hold the lock so overlapping POSTs from
+        # two browser tabs cannot lose each other's changes.
+        with config.mutation_lock:
+            settings = config.load_settings()
+            settings["global"].update({
+                "api_base_url": form.get("api_base_url", "").strip(),
+                "default_model": form.get("default_model", "").strip(),
+                "timezone": form.get("timezone", "").strip(),
+                "output_dir": form.get("output_dir", "").strip(),
+                "models": {
+                    stage: form.get(f"model_{stage}", "").strip()
+                    for stage in ("analysis", "generation", "brief")
+                },
+                "reasoning": {"effort": form.get("reasoning_effort", "").strip()},
+            })
+            settings["smtp"].update({
+                "host": form.get("smtp_host", "").strip(),
+                "port": smtp_port,
+                "user": form.get("smtp_user", "").strip(),
+                "sender": form.get("smtp_sender", "").strip(),
+            })
+            settings["user"]["email"] = form.get("user_email", "").strip()
+            config.save_settings(settings)
         flash("Global settings saved")
         return redirect(url_for("index"))
 
@@ -151,84 +154,89 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
 
     @app.post("/interests/new")
     def interest_new():
-        settings = config.load_settings()
-        interest, error = _parse_interest_form(request.form, {"feeds": []})
-        if error:
-            flash(error, "error")
-        elif _find_interest(settings, interest["name"]) is not None:
-            flash(f"An interest named {interest['name']!r} already exists", "error")
-        else:
-            settings["interests"].append(interest)
-            config.save_settings(settings)
-            flash(f"Interest {interest['name']!r} added")
+        with config.mutation_lock:
+            settings = config.load_settings()
+            interest, error = _parse_interest_form(request.form, {"feeds": []})
+            if error:
+                flash(error, "error")
+            elif _find_interest(settings, interest["name"]) is not None:
+                flash(f"An interest named {interest['name']!r} already exists", "error")
+            else:
+                settings["interests"].append(interest)
+                config.save_settings(settings)
+                flash(f"Interest {interest['name']!r} added")
         return redirect(url_for("index"))
 
     @app.post("/interests/<path:name>/save")
     def interest_save(name: str):
-        settings = config.load_settings()
-        old = _find_interest(settings, name)
-        if old is None:
-            flash(f"Interest {name!r} not found", "error")
-            return redirect(url_for("index"))
-        interest, error = _parse_interest_form(request.form, old)
-        if error:
-            flash(error, "error")
-        elif interest["name"] != name and _find_interest(settings, interest["name"]):
-            flash(f"An interest named {interest['name']!r} already exists", "error")
-        else:
-            settings["interests"][settings["interests"].index(old)] = interest
-            config.save_settings(settings)
-            if interest["name"] != name:
-                flash(
-                    f"Interest renamed to {interest['name']!r} — note: run history "
-                    "stays under the old name (DECISIONS.md D5)",
-                )
+        with config.mutation_lock:
+            settings = config.load_settings()
+            old = _find_interest(settings, name)
+            if old is None:
+                flash(f"Interest {name!r} not found", "error")
             else:
-                flash(f"Interest {name!r} saved")
+                interest, error = _parse_interest_form(request.form, old)
+                if error:
+                    flash(error, "error")
+                elif interest["name"] != name and _find_interest(settings, interest["name"]):
+                    flash(f"An interest named {interest['name']!r} already exists", "error")
+                else:
+                    settings["interests"][settings["interests"].index(old)] = interest
+                    config.save_settings(settings)
+                    if interest["name"] != name:
+                        flash(
+                            f"Interest renamed to {interest['name']!r} — note: run history "
+                            "stays under the old name (DECISIONS.md D5)",
+                        )
+                    else:
+                        flash(f"Interest {name!r} saved")
         return redirect(url_for("index"))
 
     @app.post("/interests/<path:name>/delete")
     def interest_delete(name: str):
-        settings = config.load_settings()
-        old = _find_interest(settings, name)
-        if old is None:
-            flash(f"Interest {name!r} not found", "error")
-        else:
-            settings["interests"].remove(old)
-            config.save_settings(settings)
-            flash(f"Interest {name!r} deleted")
+        with config.mutation_lock:
+            settings = config.load_settings()
+            old = _find_interest(settings, name)
+            if old is None:
+                flash(f"Interest {name!r} not found", "error")
+            else:
+                settings["interests"].remove(old)
+                config.save_settings(settings)
+                flash(f"Interest {name!r} deleted")
         return redirect(url_for("index"))
 
     @app.post("/interests/<path:name>/feeds/new")
     def feed_new(name: str):
-        settings = config.load_settings()
-        interest = _find_interest(settings, name)
-        feed_name = request.form.get("feed_name", "").strip()
-        feed_url = request.form.get("feed_url", "").strip()
-        if interest is None:
-            flash(f"Interest {name!r} not found", "error")
-        elif not feed_name or not feed_url:
-            flash("Feed name and URL are required", "error")
-        else:
-            interest.setdefault("feeds", []).append({
-                "name": feed_name,
-                "url": feed_url,
-                "category": request.form.get("feed_category", "").strip(),
-            })
-            config.save_settings(settings)
-            flash(f"Feed {feed_name!r} added to {name!r}")
+        with config.mutation_lock:
+            settings = config.load_settings()
+            interest = _find_interest(settings, name)
+            feed_name = request.form.get("feed_name", "").strip()
+            feed_url = request.form.get("feed_url", "").strip()
+            if interest is None:
+                flash(f"Interest {name!r} not found", "error")
+            elif not feed_name or not feed_url:
+                flash("Feed name and URL are required", "error")
+            else:
+                interest.setdefault("feeds", []).append({
+                    "name": feed_name,
+                    "url": feed_url,
+                    "category": request.form.get("feed_category", "").strip(),
+                })
+                config.save_settings(settings)
+                flash(f"Feed {feed_name!r} added to {name!r}")
         return redirect(url_for("index"))
 
     @app.post("/interests/<path:name>/feeds/<int:index>/delete")
     def feed_delete(name: str, index: int):
-        settings = config.load_settings()
-        interest = _find_interest(settings, name)
-        if interest is None or not 0 <= index < len(interest.get("feeds", [])):
-            flash("Feed not found", "error")
-        else:
-            removed = interest["feeds"].pop(index)
-            config.save_settings(settings)
-            flash(f"Feed {removed.get('name', '?')!r} removed from {name!r}")
+        with config.mutation_lock:
+            settings = config.load_settings()
+            interest = _find_interest(settings, name)
+            if interest is None or not 0 <= index < len(interest.get("feeds", [])):
+                flash("Feed not found", "error")
+            else:
+                removed = interest["feeds"].pop(index)
+                config.save_settings(settings)
+                flash(f"Feed {removed.get('name', '?')!r} removed from {name!r}")
         return redirect(url_for("index"))
 
     @app.post("/run/<path:name>")
