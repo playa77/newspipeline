@@ -156,6 +156,10 @@ class _SMTPHandler(socketserver.StreamRequestHandler):
             elif cmd == "RSET":
                 rcpt.clear()
                 self.wfile.write(b"250 OK\r\n")
+            elif cmd == "STARTTLS":
+                # Refuse loudly: this fake never negotiates TLS, and a test
+                # routing the authenticated path here must fail clearly.
+                self.wfile.write(b"454 TLS not available\r\n")
             elif cmd == "QUIT":
                 self.wfile.write(b"221 bye\r\n")
                 break
