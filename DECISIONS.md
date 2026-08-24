@@ -248,3 +248,17 @@ blocking that begins with the first feed request; executor-thread-only or
 post-first-response blocking shapes are review-covered, not test-covered.
 Companion non-invariant check in the same file: errored feeds are swallowed
 without raising.
+
+## 2026-08-24 — Invariant G7 added (guarded): authenticated SMTP upgrades with a certificate-verifying context, credentials never precede TLS
+
+Derived during the STARTTLS fix (review pass flagged smtplib's default
+STARTTLS context as non-verifying → credential exposure to active MITM).
+Guarded via tests/test_emailer_tls.py: authenticated send must call
+starttls with verify_mode=CERT_REQUIRED and check_hostname=True, and the
+event order must be exactly starttls → login → send; the unauthenticated
+relay path must never issue starttls. The live handshake itself remains T2
+(untestable here). Behavioral delta logged in CHANGELOG.md: self-signed or
+hostname-mismatched authenticated relays now fail loudly instead of
+connecting. Rejected alternative: opt-in flag to disable verification —
+rejected as a footgun; users needing it can pin the relay in an
+OS-level trust store.

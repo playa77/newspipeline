@@ -35,11 +35,15 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   Accepted LOWs from pass 2: redirect chains re-arm per-hop timeout;
   no raise_for_status on feeds (error pages = zero-entry feeds, logged);
   `resp` name reused for article responses.
-- HI-2 [OPEN] emailer.py:57 `server.starttls()` without an SSL context —
+- HI-2 [FIXED — commit step 2; T2 diff approved by human] emailer.py:57 `server.starttls()` without an SSL context —
   smtplib defaults to an *unverified* context, so STARTTLS credentials
   (NEWS_SMTP_PASSWORD) are exposed to active MITM. Fix direction: pass
   `ssl.create_default_context()`. Touches T2 (SMTP auth path) → flag to
   human before commit.
+  Resolution: verifying context installed; guard tests pin context +
+  starttls→login→send order (new invariant G7). Review PASS. Behavioral
+  delta (self-signed authenticated relays now fail loudly) logged in
+  CHANGELOG.md and accepted.
 - HI-3 [OPEN] config.py:74 writes settings.toml in place (`write_text`) —
   a reader (scheduler tick re-reads settings every 60s; Flask threads serve
   concurrently) can observe a torn file; web routes do unlocked
@@ -88,6 +92,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 | # | Scope | Tests | Review verdict | Commit |
 |---|-------|-------|----------------|--------|
 | 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | b774bb4 |
-| 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | (below) |
+| 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | 0ccf799 |
+| 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | (below) |
 
-M2 after step 1: `grep -c "\[OPEN\]"` = 5.
+M2 after step 2: `grep -c "\[OPEN\]"` = 4.

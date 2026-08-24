@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 import time
 from datetime import UTC, datetime
 from email.mime.text import MIMEText
@@ -54,7 +55,10 @@ def send_email(
         try:
             with smtplib.SMTP(smtp_host, smtp_port) as server:
                 if wants_auth:
-                    server.starttls()
+                    # smtplib's default STARTTLS context does NOT verify
+                    # certificates — pass a verifying one so credentials
+                    # cannot be harvested by an active MITM.
+                    server.starttls(context=ssl.create_default_context())
                     server.login(smtp_user, smtp_password)
                 server.send_message(msg)
             logger.info("Email sent — subject=%r recipient=%s", subject, recipient)

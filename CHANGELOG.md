@@ -7,6 +7,12 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- Authenticated SMTP now upgrades with a **certificate-verifying** TLS
+  context (`ssl.create_default_context()`); previously `starttls()` used
+  smtplib's non-verifying default. Behavioral delta: authenticated relays
+  with self-signed or hostname-mismatched certificates will now fail loudly
+  (after retries) instead of connecting — deliberate; unauthenticated local
+  relays are unaffected.
 - Scrape stage no longer blocks the scheduler event loop: feed fetches go
   through the timed httpx client and only XML parsing / article extraction
   run in worker threads (`asyncio.to_thread`). Fixes stalled-feed wedging
@@ -21,6 +27,8 @@ happens. Format: version heading, date, grouped bullet points.
 
 - Invariant G6 + guard test `tests/test_scrape_loop.py` (stalled feed must
   not block the event loop; errored feeds swallowed).
+- Guard tests for STARTTLS verification and credential ordering on the
+  authenticated SMTP path (`tests/test_emailer_tls.py`).
 
 ## 0.1.1 — 2026-08-08
 
