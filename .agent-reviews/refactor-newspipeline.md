@@ -1,0 +1,83 @@
+# Refactor tracking — newspipeline
+
+Task: refactor until no high-impact architectural objection remains
+unresolved or explicitly accepted. Live-test + review pass + commit after
+each significant step.
+
+Stop condition (DECISIONS.md 2026-08-24):
+
+- M1 `pytest tests/ -q` — baseline 2026-08-24: **21 passed**. Target: green every commit.
+- M2 `grep -c "\[OPEN\]" .agent-reviews/refactor-newspipeline.md`
+  — baseline: **6**. Target: 0 across two consecutive final passes.
+- Budget: 10 commits or 3h wall-clock.
+
+Commits land on `main` (repo convention: linear history, direct commits).
+Review passes are run by a fresh-context reviewer agent over each step diff;
+findings classified high/medium/low. High-impact ones become HI-n below.
+
+## High-impact objections
+
+Statuses: [OPEN] unresolved · [FIXED] resolved by commit · [ACCEPTED]
+explicitly accepted by the human · [ESCALATED] awaiting human decision.
+
+- HI-1 [OPEN] pipeline.py `_scrape` runs blocking network/CPU work directly
+  on the scheduler's asyncio event loop: `feedparser.parse(url)` fetches the
+  feed synchronously (pipeline.py:142) and `trafilatura.extract(...)` parses
+  article HTML on-loop (pipeline.py:157). While one interest scrapes, the
+  60s tick stalls and all other concurrent runs freeze mid-flight (e.g.
+  between LLM calls). Async facade over blocking calls — the main
+  architectural defect. Fix direction: `asyncio.to_thread` around both calls;
+  sequential order preserved; no semantic change (G-guards untouched).
+- HI-2 [OPEN] emailer.py:57 `server.starttls()` without an SSL context —
+  smtplib defaults to an *unverified* context, so STARTTLS credentials
+  (NEWS_SMTP_PASSWORD) are exposed to active MITM. Fix direction: pass
+  `ssl.create_default_context()`. Touches T2 (SMTP auth path) → flag to
+  human before commit.
+- HI-3 [OPEN] config.py:74 writes settings.toml in place (`write_text`) —
+  a reader (scheduler tick re-reads settings every 60s; Flask threads serve
+  concurrently) can observe a torn file; web routes do unlocked
+  load→mutate→save cycles so two overlapping POSTs lose updates. Fix
+  direction: atomic tmp-file + `os.replace`, plus a module-level mutation
+  lock held across load→save cycles in the web layer.
+- HI-4 [OPEN] scheduler.py `_launch` starts runs without checking that an
+  API key is configured (cli.py:108 checks). With no key, every scheduled
+  slot produces a guaranteed-failed run row plus a failure-alert attempt —
+  alert noise and DB rows for a known-missing precondition. Fix direction:
+  pre-check in `_launch`, consistent with CLI semantics.
+- HI-5 [OPEN] Run-completion dispatch duplicated: cli.py `_run_selected`
+  and scheduler.py `_run_interest_safe` both implement
+  run→status→deliver_run/deliver_failure_alert with slightly divergent
+  error handling. Drift risk between manual and scheduled delivery. Fix
+  direction: one shared dispatch function (delivery.py), both callers use it.
+- HI-6 [OPEN] pipeline.py:236 extracts themes with greedy regex
+  `re.search(r"\[.*\]", response, re.DOTALL)` — markdown fences, leading
+  prose, or trailing commentary make parsing fail silently and the analyze
+  stage yields zero themes while the run still reports completed. Fix
+  direction: tolerant extraction (strip code fences, balanced-bracket scan),
+  unit-tested.
+
+## Pending human decision (escalated / acceptance candidates)
+
+- ESC-1 [ESCALATED] config.py PROJECT_ROOT derives from `__file__`.parents[2],
+  which resolves correctly only for editable installs (the documented setup).
+  Under a regular install, config/data paths would resolve inside site-packages.
+  Fixing means changing path resolution — touches where state persists
+  (deployment contract). Candidate outcome: accept as-is (documented
+  editable-install posture) or fix. Human decides.
+- ESC-2 [ESCALATED] Web UI has no Origin/Host validation: a malicious page
+  open in the user's browser can cross-site POST to 127.0.0.1:8421 (CSRF:
+  rewrite settings, inject feeds, trigger runs, delete interests) and DNS
+  rebinding defeats the localhost binding. Hardening = security-model change
+  → R3 escalation required; cannot implement without explicit instruction.
+  Branches: (a) add Origin/Host allowlist middleware on POSTs, (b) accept
+  current documented posture (bind 127.0.0.1, single-user, no auth).
+- Accepted-by-ledger (carried, not re-litigated): D5 rename orphans run
+  history; WP6 stale 'running' row blocks interest until manual repair;
+  WP4 sequential sync-style scraping kept for legacy parity (HI-1 revisits
+  the loop-blocking aspect only).
+
+## Step log
+
+| # | Scope | Tests | Review verdict | Commit |
+|---|-------|-------|----------------|--------|
+| 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | pending |

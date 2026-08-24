@@ -181,3 +181,28 @@ them rather than silent drift.
 Historical entries above and in CHANGELOG.md still mention `legacy/` —
 both files are append-only and are not rewritten; this entry supersedes
 the WP9 note about importlib-based parity testing.
+
+## 2026-08-24 — R1: Refactor task opened — stop condition logged before first edit (R2)
+
+Human instruction: refactor until no high-impact architectural objection
+remains unresolved or explicitly accepted; live-test + review + commit after
+each significant step; progress tracked in `.agent-reviews/refactor-newspipeline.md`.
+Per contract §7 ("until satisfied"-style conditions are rejected), the stop
+condition is expressed as metrics:
+
+- M1 — guard suite green at every commit: `pytest tests/ -q`.
+  Baseline measured now: **21 passed**. Target: all pass, none skipped/weakened.
+- M2 — zero unresolved high-impact objections across two consecutive final
+  review passes: `grep -c "\[OPEN\]" .agent-reviews/refactor-newspipeline.md`.
+  Baseline measured now: **6** (initial review listed HI-1…HI-6). Target: 0,
+  with every remaining HI either fixed or explicitly accepted by the human.
+- Budget: **10 commits or 3 hours wall-clock**, whichever comes first.
+  Budget exhausted with targets unmet → stop and report trajectory.
+
+Cadence per significant step: edit → pytest → live boot test (`serve` smoke,
+headless) → independent fresh-context review pass over the diff → commit.
+No persisted-format, external-contract, framework, or security-model change
+is planned; anything drifting toward R3 stops and escalates. Known items
+already accepted in this ledger (D5 rename-orphaning; WP6 stale-running-row
+limitation; WP4 sync feedparser note) are carried as accepted unless a
+review pass upgrades them.
