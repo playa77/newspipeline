@@ -3,6 +3,25 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## Unreleased — architectural refactor (2026-08-24)
+
+### Changed
+
+- Scrape stage no longer blocks the scheduler event loop: feed fetches go
+  through the timed httpx client and only XML parsing / article extraction
+  run in worker threads (`asyncio.to_thread`). Fixes stalled-feed wedging
+  of concurrent runs; also bounds feed fetches by
+  `article_fetch_timeout_seconds` (previously unbounded via feedparser's
+  internal fetcher). HTTP error pages now parse as zero-entry feeds
+  (observability note in DECISIONS.md).
+- `SchedulerThread.stop()` docstring corrected: in-flight runs are
+  abandoned with the loop, not cancelled.
+
+### Added
+
+- Invariant G6 + guard test `tests/test_scrape_loop.py` (stalled feed must
+  not block the event loop; errored feeds swallowed).
+
 ## 0.1.1 — 2026-08-08
 
 ### Removed

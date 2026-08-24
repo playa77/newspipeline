@@ -18,6 +18,7 @@ interest's `delivery` list — see emailer.py and fileout.py (WP5).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -137,9 +138,15 @@ class Pipeline:
         ) as http:
             for feed in feeds:
                 try:
-                    # feedparser.parse is blocking; feed fetches are
-                    # sequential and local-scale, so this is fine.
-                    parsed = feedparser.parse(feed["url"])
+                    # The fetch goes through the timed httpx client below —
+                    # feedparser's own URL fetcher has no timeout, and a
+                    # stalled feed server must not wedge the run task (and
+                    # with it the interest) or an executor thread past
+                    # process shutdown. Only XML parsing is offloaded to a
+                    # thread so the scheduler loop keeps ticking; feeds are
+                    # still processed strictly sequentially.
+                    resp = await http.get(feed["url"])
+                    parsed = await asyncio.to_thread(feedparser.parse, resp.content)
                     for entry in parsed.entries[:20]:
                         url = entry.get("link", "")
                         if not url:
@@ -154,8 +161,13 @@ class Pipeline:
                         content_status = "excerpt"
                         try:
                             resp = await http.get(url)
-                            content = trafilatura.extract(
-                                resp.text, include_comments=False, include_tables=False,
+                            # trafilatura is CPU-bound parsing; keep it off
+                            # the event loop for the same reason as above.
+                            content = await asyncio.to_thread(
+                                trafilatura.extract,
+                                resp.text,
+                                include_comments=False,
+                                include_tables=False,
                             )
                             if content:
                                 content_status = "full"

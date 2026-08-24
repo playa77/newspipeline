@@ -156,8 +156,10 @@ class SchedulerThread:
     def stop(self) -> None:
         """Signal the loop to stop and join the thread. Idempotent.
 
-        In-flight pipeline runs are cancelled with the loop; the caller
-        (CLI `serve`) installs the signal handlers that invoke this.
+        In-flight pipeline runs are NOT cancelled: closing the loop abandons
+        them, leaving their run rows in 'running' state (the WP6 limitation).
+        The caller (CLI `serve`) installs the signal handlers that invoke
+        this.
         """
         if not self._started:
             return

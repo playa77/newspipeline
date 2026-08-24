@@ -206,3 +206,45 @@ is planned; anything drifting toward R3 stops and escalates. Known items
 already accepted in this ledger (D5 rename-orphaning; WP6 stale-running-row
 limitation; WP4 sync feedparser note) are carried as accepted unless a
 review pass upgrades them.
+
+## 2026-08-24 — R2: Scrape-stage blocking work offloaded to threads (`asyncio.to_thread`)
+
+Supersedes the WP4 note "feedparser.parse is called directly with the feed
+URL … kept for parity". The scheduler hosts concurrent per-interest runs on
+one event loop, so on-loop network fetches (feedparser) and CPU-bound HTML
+parsing (trafilatura) stalled the tick loop and all other in-flight runs.
+Fix: both calls wrapped in `asyncio.to_thread` inside `Pipeline._scrape`.
+Rejected alternative: rewriting feed fetching on an async HTTP client —
+would duplicate feedparser's fetch/parse behavior for no local-scale need.
+Semantics unchanged: feeds still processed sequentially, article order and
+dedupe untouched (G2/G5 guards cover).
+
+### Correction after review pass 1 (2026-08-24) — supersedes the paragraph above
+
+The first-pass review correctly failed the implementation described above:
+wrapping `feedparser.parse(url)` in a thread keeps feedparser's own UNTIMED
+urllib fetch inside a non-daemon executor thread — a stalled feed server
+would wedge the run task (interest lockout via the stale-'running' guard)
+and hang interpreter shutdown at executor join. Delivered fix instead:
+the feed is fetched through the existing timed httpx client
+(`httpx.Timeout(article_fetch_timeout_seconds, default 30)`), and only XML
+parsing runs in a thread (`asyncio.to_thread(feedparser.parse,
+resp.content)`); trafilatura extraction likewise offloaded. The "rejected
+alternative" line above is therefore wrong for feeds — the async-client
+fetch is exactly what shipped; it remains rejected only as a *rewrite of
+feedparser's parsing*. Behavioral deltas accepted: HTTP error pages now
+parse as zero-entry feeds instead of surfacing status via bozo flags
+(observability only, logged per feed); redirect chains re-arm the per-hop
+timeout (worst case hop-count-bound wall clock). New guard test:
+tests/test_scrape_loop.py.
+
+## 2026-08-24 — Invariant G6 added (guarded): a stalled feed FETCH must not block the scheduler event loop
+
+Derived during the scrape-offload refactor. Guarded via
+tests/test_scrape_loop.py::test_scrape_keeps_event_loop_responsive
+(fixture feed stalls 2s; probe coroutine must complete while the scrape is
+in flight under a 1.0s deadline). Documented scope: detects on-loop
+blocking that begins with the first feed request; executor-thread-only or
+post-first-response blocking shapes are review-covered, not test-covered.
+Companion non-invariant check in the same file: errored feeds are swallowed
+without raising.

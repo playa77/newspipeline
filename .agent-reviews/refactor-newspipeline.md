@@ -20,7 +20,7 @@ findings classified high/medium/low. High-impact ones become HI-n below.
 Statuses: [OPEN] unresolved · [FIXED] resolved by commit · [ACCEPTED]
 explicitly accepted by the human · [ESCALATED] awaiting human decision.
 
-- HI-1 [OPEN] pipeline.py `_scrape` runs blocking network/CPU work directly
+- HI-1 [FIXED — commit step 1] pipeline.py `_scrape` runs blocking network/CPU work directly
   on the scheduler's asyncio event loop: `feedparser.parse(url)` fetches the
   feed synchronously (pipeline.py:142) and `trafilatura.extract(...)` parses
   article HTML on-loop (pipeline.py:157). While one interest scrapes, the
@@ -28,6 +28,13 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   between LLM calls). Async facade over blocking calls — the main
   architectural defect. Fix direction: `asyncio.to_thread` around both calls;
   sequential order preserved; no semantic change (G-guards untouched).
+  Resolution: review pass 1 FAILED the naive to_thread wrap (feedparser's own
+  fetch is untimed → executor wedge + shutdown hang); reworked to timed httpx
+  fetch + parse-only offload. Review pass 2 PASS. New guarded invariant G6 +
+  tests/test_scrape_loop.py; guard sensitivity verified against pre-fix code.
+  Accepted LOWs from pass 2: redirect chains re-arm per-hop timeout;
+  no raise_for_status on feeds (error pages = zero-entry feeds, logged);
+  `resp` name reused for article responses.
 - HI-2 [OPEN] emailer.py:57 `server.starttls()` without an SSL context —
   smtplib defaults to an *unverified* context, so STARTTLS credentials
   (NEWS_SMTP_PASSWORD) are exposed to active MITM. Fix direction: pass
@@ -80,4 +87,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 
 | # | Scope | Tests | Review verdict | Commit |
 |---|-------|-------|----------------|--------|
-| 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | pending |
+| 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | b774bb4 |
+| 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | (below) |
+
+M2 after step 1: `grep -c "\[OPEN\]"` = 5.
