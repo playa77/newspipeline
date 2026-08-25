@@ -3,7 +3,7 @@
 Guard tests for G1–G5 land in WP9 (see WORKPACKAGES.md).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 import newspipeline
 from newspipeline import cli, config, emailer, fileout, llm, pipeline, scheduler, store
@@ -11,7 +11,7 @@ from newspipeline.web.app import create_app
 
 
 def test_version():
-    assert newspipeline.__version__ == "0.1.0"
+    assert newspipeline.__version__ == "0.2.0"
 
 
 def test_all_modules_importable():

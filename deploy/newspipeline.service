@@ -3,6 +3,7 @@
 # Install:
 #   cp deploy/newspipeline.service ~/.config/systemd/user/
 #   # edit WorkingDirectory and ExecStart to match your checkout path
+#   # optional: Environment=NEWSPIPELINE_HOME=/some/dir to relocate state
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now newspipeline.service
 #   loginctl enable-linger "$USER"   # keep it running when logged out

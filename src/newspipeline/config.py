@@ -10,7 +10,7 @@ Two sources, strictly separated:
   logged, and never returned to the UI (invariant G1).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 

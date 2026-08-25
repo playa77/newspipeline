@@ -7,9 +7,12 @@ each significant step.
 Stop condition (DECISIONS.md 2026-08-24):
 
 - M1 `pytest tests/ -q` — baseline 2026-08-24: **21 passed**. Target: green every commit.
-- M2 `grep -c "\[OPEN\]" .agent-reviews/refactor-newspipeline.md`
-  — baseline: **6**. Target: 0 across two consecutive final passes.
-- Budget: 10 commits or 3h wall-clock.
+  Final: **75 passed**.
+- M2 open high-impact objections — refined command (legend line made the
+  original pattern over-count): `grep -c '^- HI-.*\[OPEN\]' .agent-reviews/refactor-newspipeline.md`
+  — baseline: **6**. Final: **0**, confirmed by two consecutive clean final
+  review passes (PASS A: CLEAN; PASS B: no architectural objections).
+- Budget: 10 commits or 3h wall-clock. Used: 10 commits, ~2h50m.
 
 Commits land on `main` (repo convention: linear history, direct commits).
 Review passes are run by a fresh-context reviewer agent over each step diff;
@@ -94,23 +97,25 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 
 ## Pending human decision (escalated / acceptance candidates)
 
-- ESC-1 [ESCALATED] config.py PROJECT_ROOT derives from `__file__`.parents[2],
-  which resolves correctly only for editable installs (the documented setup).
-  Under a regular install, config/data paths would resolve inside site-packages.
-  Fixing means changing path resolution — touches where state persists
-  (deployment contract). Candidate outcome: accept as-is (documented
-  editable-install posture) or fix. Human decides.
-- ESC-2 [ESCALATED] Web UI has no Origin/Host validation: a malicious page
-  open in the user's browser can cross-site POST to 127.0.0.1:8421 (CSRF:
-  rewrite settings, inject feeds, trigger runs, delete interests) and DNS
-  rebinding defeats the localhost binding. Hardening = security-model change
-  → R3 escalation required; cannot implement without explicit instruction.
-  Branches: (a) add Origin/Host allowlist middleware on POSTs, (b) accept
-  current documented posture (bind 127.0.0.1, single-user, no auth).
+- ESC-1 [DECIDED — FIXED] config.py PROJECT_ROOT derives from `__file__`.parents[2],
+  which resolves correctly only for editable installs. Human chose (b):
+  `NEWSPIPELINE_HOME` env override, fallback unchanged ("we do not want to
+  break every actual install"). Documented in README + deploy unit comment;
+  guard test pins override + empty-string-is-unset.
+- ESC-2 [DECIDED — FIXED, delegated-with-warning] Web UI cross-site exposure.
+  Human chose (a) harden; no distinct reason given on re-ask → recorded as
+  delegated-with-warning per contract §5. Delivered: loopback Host required
+  on EVERY request (reads included — closes DNS rebinding), loopback Origin
+  required on all non-safe methods (default-deny for future verbs);
+  no-Origin local tooling unaffected; port-mismatched loopback Origins
+  allowed by design (pinned by test). Non-loopback binds log a startup
+  warning.
 - Accepted-by-ledger (carried, not re-litigated): D5 rename orphans run
   history; WP6 stale 'running' row blocks interest until manual repair;
-  WP4 sequential sync-style scraping kept for legacy parity (HI-1 revisits
-  the loop-blocking aspect only).
+  trailing-comma JSON remains fatal in theme extraction (legacy behavior,
+  logged loudly); cross-process settings writes unlocked (single-user
+  posture); executor delivery can outlive scheduler join on SIGTERM
+  (pre-existing WP6 family).
 
 ## Step log
 
@@ -122,6 +127,12 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 | 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | 222d12e |
 | 4 | HI-4 scheduler API-key launch gate | 35 passed; serve smoke 200 | pass 1 FAIL → all findings applied → pass 2 PASS | 7618dcf |
 | 5 | HI-5 shared dispatch_finished_run | 39 passed; CLI run --all + serve smoke | PASS (2 MEDIUM + 3 LOW applied) | b7e326b |
-| 6 | HI-6 tolerant theme-array extraction | 59 passed; serve smoke 200 | pass 1 FAIL (2 HIGH verified) → rework → pass 2 PASS | (below) |
+| 6 | HI-6 tolerant theme-array extraction | 59 passed; serve smoke 200 | pass 1 FAIL (2 HIGH verified) → rework → pass 2 PASS | 18766b0 |
+| 7 | ESC-1 path override + ESC-2 origin gate (R3, human-decided; T1 flagged/approved) | 75 passed; live: rebind GET/POST 403, local flows 200/302, override relocates state | pass 1 FAIL (rebinding reads) → hoisted Host gate → PASS A CLEAN + PASS B no-arch-objection | 2e85d76 |
+| close | version alignment 0.2.0, doc precision fixes, tracking closeout | 75 passed | PASS B bookkeeping findings applied | (below) |
 
-M2 after step 6: `grep -c "\[OPEN\]"` = 0 (HI all resolved; ESC-1/ESC-2 pending human decision).
+M2 final: `grep -c '^- HI-.*\[OPEN\]'` = 0.
+
+**Outcome: stop condition met.** All six HI objections fixed with guards;
+both ESC items human-decided and delivered; two consecutive clean final
+passes; budget respected (10 commits / ~2h50m).

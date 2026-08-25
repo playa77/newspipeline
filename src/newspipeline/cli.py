@@ -7,7 +7,7 @@ Commands:
   serve  — start the settings web UI + built-in scheduler
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 

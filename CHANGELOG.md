@@ -3,7 +3,7 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
-## Unreleased — architectural refactor (2026-08-24)
+## 0.2.0 — 2026-08-25 (architectural refactor)
 
 ### Changed
 
@@ -17,7 +17,8 @@ happens. Format: version heading, date, grouped bullet points.
   header is unaffected; non-loopback binds log a startup warning.
 - Theme extraction in the analyze stage now tolerates markdown fences,
   prose wrapping, object-wrapped arrays, and citation-style brackets in the
-  model response (previously any of these silently produced zero themes).
+  model response (the old greedy regex lost the themes on multi-region
+  responses, object-wrapped payloads, and unpaired prose quotes).
   Junk output (arrays without theme objects) fails loudly into the existing
   log-and-continue path, which now includes a truncated response excerpt.
 - Run-completion dispatch (deliver output vs failure alert) unified into

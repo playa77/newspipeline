@@ -365,3 +365,12 @@ accepted — browsers forge neither Host nor Origin, so hostname membership
 is the trust boundary; port mismatches are tolerated by design
 (test_web_origin.py pins this). Non-loopback `serve --host` values log a
 warning at startup (browsers would get 403s).
+
+### Step-6 characterization correction (2026-08-25)
+
+The step-6 and changelog text said the old greedy regex "silently produced
+zero themes" for fenced/prose-wrapped arrays; precisely, it handled single
+fenced/wrapped arrays but lost themes on multi-region responses (citation
+brackets), object-wrapped-only payloads, and unpaired prose quotes. The
+delivered `_extract_json_array` is a strict superset of the old acceptance;
+only the historical wording overstated the defect.
