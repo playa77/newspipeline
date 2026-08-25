@@ -302,3 +302,17 @@ tick. Guards: tests/test_scheduler.py launch-refusal (no rows) and
 launch-starts (key passthrough + completion branch dispatch), plus a
 failure-alert dispatch sibling. Rejected alternative: pre-check inside
 Pipeline.run — too late, the doomed row would already exist.
+
+## 2026-08-24 — R2: Run-completion dispatch deduplicated into delivery.dispatch_finished_run (step 5)
+
+The run→status→deliver/alert routing existed twice (cli._run_selected and
+scheduler._run_interest_safe) with drifting error handling; both now call
+delivery.dispatch_finished_run, which returns (status, run) — the row read
+for the dispatch decision — so callers never re-read a divergent snapshot.
+Scheduler still runs it in the executor (blocking SMTP/file I/O); CLI runs
+it synchronously. Dedup is itself guarded: a wrapping spy asserts both
+entry points route through the shared function
+(test_delivery_dispatch.py::test_scheduler_and_cli_route_through_shared_
+dispatch); cli.py references the function via module attribute so the spy
+cannot be bypassed by import-time binding. Rejected alternative: keeping
+the duplication with a comment cross-reference — drift was the defect.

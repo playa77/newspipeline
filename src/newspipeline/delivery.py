@@ -7,7 +7,7 @@ the scheduler (WP6) after a pipeline run finishes; also provides the
 failure-alert path for failed runs.
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
@@ -83,6 +83,34 @@ def deliver_run(
             )
 
     return result
+
+
+def dispatch_finished_run(
+    *,
+    run_id: int,
+    store: Store,
+    settings: dict[str, Any],
+    interest: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Deliver a finished run's output or send its failure alert.
+
+    Single dispatch path shared by the CLI (`run`) and the scheduler so
+    manual and scheduled runs cannot drift apart. Returns ``(status, run)``
+    — the row as read for the dispatch decision, so callers never re-read
+    a second (possibly divergent) snapshot.
+    """
+    run = store.get_run(run_id) or {}
+    status = run.get("status", "unknown")
+    if status == "completed":
+        deliver_run(run_id=run_id, store=store, settings=settings, interest=interest)
+    else:
+        deliver_failure_alert(
+            interest=interest,
+            settings=settings,
+            stage_name=run.get("current_stage") or "unknown",
+            error_message=run.get("error") or "unknown error",
+        )
+    return status, run
 
 
 def deliver_failure_alert(

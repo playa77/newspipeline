@@ -7,6 +7,10 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- Run-completion dispatch (deliver output vs failure alert) unified into
+  `delivery.dispatch_finished_run`, shared by the CLI and the scheduler;
+  previously duplicated with divergent error handling. Returns
+  `(status, run)` so callers reuse one consistent row snapshot.
 - The scheduler no longer starts pipeline runs when `NEWS_API_KEY` is
   unset: the launch is refused with the CLI's guidance (log warning;
   UI flash on manual trigger) instead of producing a doomed run row and a

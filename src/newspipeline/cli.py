@@ -21,7 +21,7 @@ from typing import Any
 
 from newspipeline import __version__
 from newspipeline import config
-from newspipeline.delivery import deliver_failure_alert, deliver_run
+from newspipeline import delivery
 from newspipeline.pipeline import Pipeline
 from newspipeline.scheduler import SchedulerThread, is_paused
 from newspipeline.store import Store
@@ -69,18 +69,14 @@ async def _run_selected(
         try:
             pipeline = Pipeline(store=store, settings=settings, api_key=api_key)
             run_id = await pipeline.run(interest)
-            run = store.get_run(run_id) or {}
-            if run.get("status") == "completed":
-                deliver_run(run_id=run_id, store=store, settings=settings, interest=interest)
+            status, run = delivery.dispatch_finished_run(
+                run_id=run_id, store=store, settings=settings, interest=interest,
+            )
+            if status == "completed":
                 print(f"{name}: run {run_id} completed")
             else:
                 failures += 1
                 error = run.get("error") or "unknown error"
-                deliver_failure_alert(
-                    interest=interest, settings=settings,
-                    stage_name=run.get("current_stage") or "unknown",
-                    error_message=error,
-                )
                 print(f"{name}: run {run_id} FAILED — {error}", file=sys.stderr)
         except Exception as exc:
             failures += 1

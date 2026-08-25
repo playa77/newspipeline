@@ -324,23 +324,13 @@ class SchedulerThread:
                 store=self._store, settings=settings, api_key=api_key,
             )
             run_id = await pipeline.run(interest)
-            run = self._store.get_run(run_id) or {}
-            status = run.get("status", "unknown")
             # Delivery (smtplib, file I/O) is blocking — keep it off the loop.
             loop = asyncio.get_running_loop()
-            if status == "completed":
-                await loop.run_in_executor(None, partial(
-                    delivery.deliver_run,
-                    run_id=run_id, store=self._store,
-                    settings=settings, interest=interest,
-                ))
-            else:
-                await loop.run_in_executor(None, partial(
-                    delivery.deliver_failure_alert,
-                    interest=interest, settings=settings,
-                    stage_name=run.get("current_stage") or "unknown",
-                    error_message=run.get("error") or "unknown error",
-                ))
+            status, _run = await loop.run_in_executor(None, partial(
+                delivery.dispatch_finished_run,
+                run_id=run_id, store=self._store,
+                settings=settings, interest=interest,
+            ))
             logger.info("Pipeline run finished — interest=%r status=%s", name, status)
         except Exception:
             logger.exception("Pipeline run failed — interest=%r", name)

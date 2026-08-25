@@ -70,11 +70,15 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   Accepted LOWs: get_api_key file I/O on loop thread is frequency-bounded;
   gate ordering may mislabel an exotic "no key while running" corner;
   duplicated guidance string between cli.py and scheduler.py can drift.
-- HI-5 [OPEN] Run-completion dispatch duplicated: cli.py `_run_selected`
+- HI-5 [FIXED — commit step 5] Run-completion dispatch duplicated: cli.py `_run_selected`
   and scheduler.py `_run_interest_safe` both implement
   run→status→deliver_run/deliver_failure_alert with slightly divergent
   error handling. Drift risk between manual and scheduled delivery. Fix
   direction: one shared dispatch function (delivery.py), both callers use it.
+  Resolution: `delivery.dispatch_finished_run` returns (status, run);
+  scheduler via executor, CLI synchronous; dedup itself guarded by wrapping
+  spy on both entry points. Review PASS (2 MEDIUMs + 3 LOWs applied
+  pre-commit). Accepted LOWs: none outstanding.
 - HI-6 [OPEN] pipeline.py:236 extracts themes with greedy regex
   `re.search(r"\[.*\]", response, re.DOTALL)` — markdown fences, leading
   prose, or trailing commentary make parsing fail silently and the analyze
@@ -110,6 +114,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 | 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | 0ccf799 |
 | 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | 1d53097+532649c |
 | 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | 222d12e |
-| 4 | HI-4 scheduler API-key launch gate | 35 passed; serve smoke 200 | pass 1 FAIL → all findings applied → pass 2 PASS | (below) |
+| 4 | HI-4 scheduler API-key launch gate | 35 passed; serve smoke 200 | pass 1 FAIL → all findings applied → pass 2 PASS | 7618dcf |
+| 5 | HI-5 shared dispatch_finished_run | 39 passed; CLI run --all + serve smoke | PASS (2 MEDIUM + 3 LOW applied) | (below) |
 
-M2 after step 4: `grep -c "\[OPEN\]"` = 2.
+M2 after step 5: `grep -c "\[OPEN\]"` = 1.
