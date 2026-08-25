@@ -1,23 +1,53 @@
-# newspipeline systemd *user* service — settings UI + built-in scheduler.
+# newspipeline systemd *system* service — headless JSON API + scheduler (0.3.0).
+#
+# State lives under NEWSPIPELINE_HOME (suggested: /var/lib/newspipeline):
+#   /var/lib/newspipeline/config/settings.toml
+#   /var/lib/newspipeline/.env            (secrets; owner root or the service user, 0600)
+#   /var/lib/newspipeline/data/news.db
+#   /var/lib/newspipeline/output/
 #
 # Install:
-#   cp deploy/newspipeline.service ~/.config/systemd/user/
-#   # edit WorkingDirectory and ExecStart to match your checkout path
-#   # optional: Environment=NEWSPIPELINE_HOME=/some/dir to relocate state
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now newspipeline.service
-#   loginctl enable-linger "$USER"   # keep it running when logged out
+#   sudo cp deploy/newspipeline.service /etc/systemd/system/
+#   # adjust User= and paths if you deviate from the suggested layout
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now newspipeline.service
+#   journalctl -u newspipeline -f          # logs (ISO 8601 timestamps)
 #
-# systemctl stop sends SIGTERM; the CLI shuts the scheduler down cleanly.
+# The API binds 127.0.0.1 only; reach it from your desktop via SSH tunnel
+# (see README.md). `systemctl stop` sends SIGTERM — the CLI shuts the
+# scheduler down cleanly.
 
 [Unit]
-Description=newspipeline settings UI + scheduler
+Description=newspipeline news pipeline server (JSON API + scheduler)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
-WorkingDirectory=%h/projects/newspipeline
-ExecStart=%h/projects/newspipeline/.venv/bin/newspipeline serve
-Restart=on-failure
+Type=simple
+User=newspipeline
+Group=newspipeline
+Environment=NEWSPIPELINE_HOME=/var/lib/newspipeline
+ExecStart=/opt/newspipeline/.venv/bin/newspipeline serve --host 127.0.0.1 --port 8421
+
+# Restart on any exit — a fresh start implies the previous process died;
+# its orphaned 'running' rows are swept at startup (DECISIONS.md D10).
+Restart=always
+RestartSec=5
+
+# Hardening: the service needs network + write access to NEWSPIPELINE_HOME
+# and nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/newspipeline
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

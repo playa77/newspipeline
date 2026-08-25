@@ -1,13 +1,15 @@
-"""newspipeline command-line interface.
+"""newspipeline command-line interface (server side).
 
 Commands:
   init   — create config/settings.toml from the example template, data/,
            and remind about .env
-  run    — run the pipeline manually (--interest NAME | --all)
-  serve  — start the settings web UI + built-in scheduler
+  run    — run the pipeline manually (--interest NAME | --all); never
+           sweeps orphaned run rows (serve-only, DECISIONS.md D10)
+  serve  — start the JSON configuration API + built-in scheduler,
+           bound to the loopback interface (tunnel trust boundary, D7)
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 from __future__ import annotations
 
@@ -116,12 +118,12 @@ def _cmd_run(interest: str | None, run_all: bool) -> int:
 
 def _cmd_serve(host: str, port: int, no_scheduler: bool) -> int:
     if host not in ("127.0.0.1", "localhost", "::1"):
-        # The web UI rejects non-loopback Host headers (web/app.py origin
-        # gate), so a non-loopback bind would serve pages no browser can
-        # use — warn loudly instead of failing silently.
+        # The API rejects non-loopback Host headers (web/app.py origin
+        # gate), so a non-loopback bind would serve requests no tunnel
+        # setup can use — warn loudly instead of failing silently.
         logger.warning(
-            "Binding to %s — the settings UI rejects non-local Host "
-            "headers; browsers on other machines will get 403s.", host,
+            "Binding to %s — the API rejects non-local Host headers; "
+            "clients will get 403s.", host,
         )
     store = Store()
     scheduler: SchedulerThread | None = None
@@ -137,7 +139,7 @@ def _cmd_serve(host: str, port: int, no_scheduler: bool) -> int:
     signal.signal(signal.SIGTERM, _sigterm)
 
     app = create_app(store=store, scheduler=scheduler)
-    logger.info("Serving settings UI on http://%s:%d (scheduler %s)",
+    logger.info("Serving JSON API on http://%s:%d (scheduler %s)",
                 host, port, "running" if scheduler else "disabled")
     try:
         app.run(host=host, port=port)
@@ -163,10 +165,10 @@ def main() -> int:
     group.add_argument("--interest", metavar="NAME", help="run a single interest by name")
     group.add_argument("--all", action="store_true", help="run all non-paused interests")
 
-    serve_p = sub.add_parser("serve", help="start the settings UI + scheduler")
+    serve_p = sub.add_parser("serve", help="start the JSON API + scheduler (loopback only)")
     serve_p.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     serve_p.add_argument("--port", type=int, default=8421, help="listen port (default 8421)")
-    serve_p.add_argument("--no-scheduler", action="store_true", help="run UI without the scheduler")
+    serve_p.add_argument("--no-scheduler", action="store_true", help="run API without the scheduler")
 
     args = parser.parse_args()
     if args.command == "init":

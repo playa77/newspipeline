@@ -10,7 +10,7 @@ A single connection guarded by a lock is shared between the Flask thread
 and the scheduler thread; WAL mode allows concurrent readers.
 """
 
-# version: 0.1.0
+# version: 0.3.0
 
 from __future__ import annotations
 
@@ -174,6 +174,54 @@ class Store:
             (interest_name,),
         ).fetchone()
         return row is not None
+
+    def rename_interest(self, old_name: str, new_name: str) -> int:
+        """Repoint all run rows from ``old_name`` to ``new_name``.
+
+        Step 2 of the rename contract (DECISIONS.md D11): the database is
+        updated FIRST and settings.toml second by the caller, so a crash
+        between the two leaves a half-applied rename that converges when
+        the rename is re-run — this UPDATE is idempotent (zero matched
+        rows on retry). Returns the number of repointed rows.
+        """
+        logger.info(
+            "Rename store write: BEFORE — interest=%r -> %r", old_name, new_name,
+        )
+        cur = self._execute(
+            "UPDATE runs SET interest_name = ? WHERE interest_name = ?",
+            (new_name, old_name),
+        )
+        logger.info(
+            "Rename store write: AFTER — interest=%r -> %r (%d run row(s) repointed)",
+            old_name, new_name, cur.rowcount,
+        )
+        return cur.rowcount
+
+    def sweep_orphaned_runs(self) -> int:
+        """Mark every 'running' row as failed ('interrupted by restart').
+
+        Called ONLY at serve startup (DECISIONS.md D10), before catch-up:
+        a fresh serve start implies the previous process died. One-shot
+        `run` invocations never call this — a concurrent serve process may
+        legitimately own a running row. Returns the number of swept rows.
+        """
+        rows = self._execute(
+            "SELECT id, interest_name FROM runs WHERE status = 'running'",
+        ).fetchall()
+        if not rows:
+            return 0
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE runs SET status = 'failed', error = ?, completed_at = ? "
+                "WHERE status = 'running'",
+                ("interrupted by restart", utcnow_iso()),
+            )
+        logger.warning(
+            "Startup sweep: %d orphaned 'running' run(s) marked failed — %s",
+            len(rows),
+            ", ".join(f"run {r['id']} ({r['interest_name']})" for r in rows),
+        )
+        return len(rows)
 
     # ---- Articles ----
 

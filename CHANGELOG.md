@@ -3,6 +3,81 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.3.0 — 2026-08-25 (client/server transformation)
+
+### Added
+
+- **Client/server split (D7):** newspipeline is now a headless server for a
+  VPS plus a separate desktop client. The server's JSON API binds to
+  127.0.0.1 only; the trust boundary is an SSH local forward — no TLS, no
+  tokens, no public exposure. The 0.2.0 Host/Origin gates are retained as
+  defense-in-depth.
+- **Desktop client** (`client/`, distribution `newspipeline-client`,
+  entry point `newspipeline-client`): PySide6 GUI + httpx. Owns the full
+  tunnel lifecycle (runtime free-port pick, ssh spawn with
+  `ExitOnForwardFailure=yes` and `ServerAliveInterval=30`, TCP readiness
+  poll, clean teardown on exit or crash), shows connection state, and
+  surfaces errors with the ssh stderr tail. Persists the connection
+  profile (host, user, port — never secrets) under
+  `~/.config/newspipeline-client/profile.json`. Feature parity with the
+  old web UI: global settings; interests CRUD including feed add/remove,
+  schedule, deliverable toggles, delivery modes and per-interest recipient
+  override; discoverable paused banner; trigger-now; run-history view;
+  rename with a trivial confirm.
+- **First-class rename (D11, amends D5):** new
+  `POST /api/interests/<name>/rename` preserves run history end-to-end:
+  validate → repoint all `runs` rows in SQLite first (idempotent) →
+  atomically rewrite settings.toml under the mutation lock, with loud
+  before/after logging. Recovery contract: re-running a half-applied
+  rename converges (a crash between the two stores is recoverable by
+  retry). Accepted consequences documented in DECISIONS.md.
+- **Startup sweep for orphaned runs (D10):** at `serve` startup only,
+  before catch-up, every `runs` row stuck in `running` becomes
+  `failed / 'interrupted by restart'` and the swept count is logged — the
+  interest is schedulable again. One-shot `newspipeline run` invocations
+  deliberately never sweep (a concurrent serve may legitimately own a
+  running row).
+- **Gmail relay delivery path (D9):** fully commented `smtp.gmail.com:587`
+  example in `settings.example.toml` and a README "Gmail relay" section
+  (dedicated sender account, 2FA + app password in `.env`, first-send
+  security-review approval note, ~500/day cap irrelevant at this volume).
+  No sender-code changes — the 0.2.0 certificate-verifying STARTTLS path
+  is exactly the target; failure alerts follow existing recipient
+  resolution.
+- **VPS deployment:** systemd *system* unit replaces the user unit
+  (`Restart=always` + `RestartSec=5`, paths via
+  `NEWSPIPELINE_HOME=/var/lib/newspipeline`, hardening directives);
+  README gains VPS deployment layout and sshd hardening notes
+  (key-only auth; optional `restrict,permitopen="127.0.0.1:8421"` on the
+  deploy key). A human-verification checklist lists what tests cannot
+  cover (live Gmail inbox delivery, live deployment, first-send approval).
+- Invariants G8 (rename preserves history;
+  `tests/test_rename_history.py`) and G9 (serve-only startup sweep;
+  `tests/test_startup_sweep.py`) added as guarded invariants.
+
+### Changed
+
+- **JSON API replaces the web UI (D8):** Flask kept as HTTP layer, but
+  JSON-only — templates and static assets removed; routes moved under
+  `/api/*` returning structured errors (`{"error": ...}`) with correct
+  status codes. Minimum surface: GET/PUT `/api/settings`,
+  GET/POST `/api/interests`, GET/PUT/DELETE `/api/interests/<name>`,
+  nested feed add/remove, `/trigger`, `/rename`, and `/api/status`
+  (recent runs per interest). Request validation stays hand-rolled (D2);
+  `create_app(store, scheduler)` injectable pattern preserved; the config
+  mutation lock now serializes every mutating route.
+- `PUT /api/interests/<name>` can never change the name — renaming
+  happens exclusively through the rename endpoint (400 otherwise).
+- The old UI's write-only API-key endpoint is not exposed over HTTP:
+  secrets stay exclusively in `.env` on the VPS, edited over SSH (G1).
+  No response body ever contains a secret value (extended G1 guard).
+
+### Removed
+
+- The HTML settings UI (`web/templates`, `web/static`) and its form-post
+  routes — superseded by the desktop client over the tunnel.
+
+
 ## 0.2.0 — 2026-08-25 (architectural refactor)
 
 ### Changed

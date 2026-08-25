@@ -374,3 +374,110 @@ fenced/wrapped arrays but lost themes on multi-region responses (citation
 brackets), object-wrapped-only payloads, and unpaired prose quotes. The
 delivered `_extract_json_array` is a strict superset of the old acceptance;
 only the historical wording overstated the defect.
+
+## 2026-08-25 — ID note for the 0.3.0 client/server task (R1)
+
+Labeling only. The 0.3.0 task brief labels its five decisions D6–D10 and two
+new guard invariants G7/G8. This ledger already contains a D6 (legacy-tree
+removal, 2026-08-08) and a G7 (SMTP STARTTLS verification, 2026-08-24); the
+ledger is append-only, so IDs continue from the next free numbers. Mapping,
+used consistently in CHANGELOG.md and code comments:
+task-D6→**D7**, task-D7→**D8**, task-D8→**D9**, task-D9→**D10**,
+task-D10→**D11**; task-G7→**G8**, task-G8→**G9**.
+
+## 2026-08-25 — D7 (task brief's "D6"): Client/server split — headless VPS server + desktop GUI client over an SSH tunnel (R3, human-directed)
+
+Human instruction: transform newspipeline into a server (this repo: headless
+daemon = JSON config API + scheduler, bound to 127.0.0.1, default port 8421)
+plus a separate desktop client distribution (`client/`,
+`newspipeline-client`) whose sole job is managing the server's
+configuration over `ssh -L`. One-way-door aspects, accepted downstream:
+- Security model is now loopback bind + SSH tunnel as THE trust boundary —
+  no TLS termination, no tokens, no public exposure; the 0.2.0 Host/Origin
+  gates are retained as defense-in-depth only.
+- A second installable distribution exists (`newspipeline-client`); third
+  parties (the human's own VPS + desktop installs) come to depend on both
+  the wire format of `/api/*` and the profile file layout under
+  `~/.config/newspipeline-client/`.
+- Scheduling semantics (G3), pipeline stages, dedupe (G2), language
+  detection (G4) untouched; settings.toml remains the source of truth
+  (D3); secrets remain exclusively in .env (G1).
+Rejected alternatives: token auth or HTTPS on the API — redundant inside a
+tunnel and more surface to manage; keeping the HTML UI server-side — the
+VPS would carry GUI-serving code for no benefit.
+
+## 2026-08-25 — D8 (task brief's "D7"): JSON-only Flask API replaces the web UI (R2)
+
+Flask retained as HTTP layer (D2 posture unchanged); templates/static
+deleted; routes become `/api/*` returning structured JSON errors with
+correct status codes. Request validation stays hand-rolled (D2 — no
+pydantic). The `create_app(store, scheduler)` injectable-dependency pattern
+is preserved; the 0.2.0 Host/Origin gates are kept verbatim as
+defense-in-depth behind the tunnel; `config.mutation_lock` now serializes
+EVERY mutating route (previously only the form-save routes). G1's guard is
+extended: no API response body may ever contain a secret value.
+Scoping decision: the old UI's write-only "set API key" endpoint is NOT
+re-exposed over HTTP. Rejected alternative: a write-only key endpoint for
+parity with the old UI — it would put a secret-setting route on the wire
+that the tunnel model does not need; `.env` is edited directly on the VPS
+over SSH. SMTP host/port/username are configurable via the API (non-secret);
+NEWS_SMTP_PASSWORD never appears in any request or response body.
+
+## 2026-08-25 — D9 (task brief's "D8"): Gmail SMTP relay as the primary delivery path (R2)
+
+No sender-code changes: the 0.2.0 certificate-verifying STARTTLS path
+(G7 invariant, tests/test_emailer_tls.py) is exactly what gmail-smtp needs.
+Delivered as documentation + example config: fully commented
+smtp.gmail.com:587 block in settings.example.toml (username = sending Gmail
+address; password via NEWS_SMTP_PASSWORD in .env) and a README "Gmail relay"
+section (dedicated sender account, 2FA + app password, first-send security
+review at myaccount.google.com/security, ~500/day cap irrelevant at this
+volume). Failure alerts follow the existing recipient-resolution logic
+(delivery.py, unchanged). Reversible by editing settings.toml back to any
+other relay.
+
+## 2026-08-25 — D10 (task brief's "D9"): Startup sweep for orphaned runs — serve-only scope (R1)
+
+At `serve` startup ONLY, before catch-up: every runs row with
+status='running' becomes status='failed',
+error='interrupted by restart'; the swept count is logged. Rationale: a
+fresh serve start implies the previous process died, so a 'running' row can
+only be orphaned. One-shot `newspipeline run` invocations must NOT sweep: a
+concurrent serve process may legitimately own a running row, and a second
+process sweeping would clobber it. Implemented inside SchedulerThread startup
+(the CLI `run` path never constructs one).
+
+## 2026-08-25 — D11 (task brief's "D10"): First-class rename operation amends D5's orphaning consequence (R2)
+
+Renaming an interest is now an explicit operation that PRESERVES run
+history, in this exact order: (1) validate new name non-empty + unique;
+(2) SQLite first — UPDATE runs SET interest_name=<new> WHERE
+interest_name=<old> (idempotent: zero rows matched is fine); (3) then
+atomically rewrite settings.toml with the renamed interest under the
+mutation lock. Loud before/after logging around each store write. Recovery
+contract: a crash between (2) and (3) leaves a half-applied rename; the
+documented remedy is to RE-RUN the rename — step (2) is idempotent, so the
+retry converges. Accepted consequences: future runs write output files under
+the new slug while pre-rename archives remain under the old slug;
+failure-alert emails reference the current name; DELETE still orphans
+history (only rename preserves). The scheduler self-corrects on its next
+tick (settings re-read per tick — WP6 note). PUT /api/interests/<name> can
+never change the name; renaming happens exclusively through the rename
+endpoint. This amends D5: rename no longer orphans history; D5's join-key
+observation itself stands.
+
+## 2026-08-25 — Invariants G8 and G9 added (guarded), derived from the 0.3.0 task specification
+
+- G8 (task brief's "G7") — rename preserves history end-to-end: renaming
+  through the API repoints all runs rows to the new name AND updates
+  settings.toml; a simulated crash between the two stores leaves a
+  half-applied state from which RE-RUNNING the rename converges. Guarded
+  via tests/test_rename_history.py::test_rename_preserves_run_history and
+  ::test_crash_between_stores_converges_on_rerun.
+- G9 (task brief's "G8") — serve startup sweeps orphaned runs; one-shot
+  runs never do: a seeded status='running' row becomes
+  failed/'interrupted by restart' when a SchedulerThread starts (interest
+  schedulable again — is_interest_running false), and the CLI `run` path
+  leaves such rows untouched. Guarded via tests/test_startup_sweep.py
+  (test_serve_startup_sweeps_orphaned_rows,
+  test_cli_run_does_not_sweep).

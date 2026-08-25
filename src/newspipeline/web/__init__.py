@@ -1,3 +1,3 @@
-"""Settings-only web UI (Flask). See app.py."""
+"""JSON configuration API (Flask, JSON-only). See app.py."""
 
-# version: 0.1.0
+# version: 0.3.0

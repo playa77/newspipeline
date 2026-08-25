@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "newspipeline"
-version = "0.2.0"
-description = "Standalone local news pipeline agent: RSS scraping, LLM theme analysis, content generation, email/file delivery"
+version = "0.3.0"
+description = "Headless news pipeline server: RSS scraping, LLM theme analysis, content generation, email/file delivery; JSON configuration API + scheduler"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -27,6 +27,3 @@ newspipeline = "newspipeline.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-"newspipeline.web" = ["templates/*", "static/*"]

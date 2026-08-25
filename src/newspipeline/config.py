@@ -3,14 +3,14 @@
 Two sources, strictly separated:
 
 - ``config/settings.toml`` — non-secret global settings, interests, feeds.
-  Human-editable; the web UI reads and writes it. Version-stable external
+  Human-editable; the JSON API reads and writes it. Version-stable external
   contract (see DECISIONS.md D3).
 - ``.env`` — secrets only (LLM API key, SMTP password). Parsed here without
   an extra dependency. Secrets are never written to settings.toml, never
-  logged, and never returned to the UI (invariant G1).
+  logged, and never returned in an API response body (invariant G1).
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ import tomli_w
 logger = logging.getLogger(__name__)
 
 # Serializes read-modify-write cycles on settings.toml / .env across the
-# Flask threads (web UI POSTs) and guards against interleaved writers.
-# RLock, not Lock: config functions take it internally (_upsert_env), so a
+# Flask threads (API mutation routes) and guards against interleaved
+# writers. RLock, not Lock: config functions take it internally (_upsert_env), so a
 # caller holding it across load→save cycles that also touches credentials
 # must not deadlock. Readers (scheduler tick) need no lock: writes replace
 # the file atomically, so they see a complete old or new version.

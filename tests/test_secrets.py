@@ -1,8 +1,11 @@
 """Guard test for invariant G1: the API key is never written to
 settings.toml, never logged, and never returned by any web endpoint.
+
+Extended for the JSON API (D8): NO response body of ANY endpoint may ever
+contain a secret value (LLM API key or SMTP password).
 """
 
-# version: 0.1.0
+# version: 0.3.0
 
 import asyncio
 import logging
@@ -37,18 +40,77 @@ def test_api_key_not_persisted_or_exposed(isolated_config, store, tmp_path):
     config.save_settings(config.load_settings())
     assert key not in settings_path.read_text()
 
-    # The web UI shows only the configured state — never the value, on any
-    # page render, including after re-entering a new key.
-    client = create_app(store=store, scheduler=None).test_client()
-    assert key not in client.get("/").get_data(as_text=True)
-    new_key = "sk-g1-replacement-key-9876543210"
-    html = client.post(
-        "/settings/api-key", data={"api_key": new_key}, follow_redirects=True,
-    ).get_data(as_text=True)
-    assert new_key not in html
-    assert "configured" in html
-    assert new_key not in settings_path.read_text()
-    assert config.get_api_key() == new_key
+
+def test_no_api_response_body_ever_contains_a_secret(
+    isolated_config, store, tmp_path,
+):
+    """G1 over the whole API surface: seed both secrets, then exercise
+    every endpoint — reads and mutations — and scan every response body."""
+    config = isolated_config
+    api_key = "sk-g1-api-surface-key-abcdef"
+    smtp_password = "g1-app-password-xyzzy-9931"
+    config.set_api_key(api_key)
+    config.set_smtp_password(smtp_password)
+    secrets = (api_key, smtp_password)
+
+    settings_path = tmp_path / "settings.toml"
+    config.save_settings({
+        **make_settings(1, tmp_path / "out"),
+        "interests": [make_interest(1, ["file"], name="surf")],
+    })
+
+    class _FakeScheduler:
+        def __bool__(self):
+            return True
+
+        def trigger_now(self, name):
+            return ""
+
+    app = create_app(store=store, scheduler=_FakeScheduler())
+    app.testing = True
+    client = app.test_client()
+
+    # Reads...
+    reads = [
+        ("get", "/api/settings", None),
+        ("get", "/api/interests", None),
+        ("get", "/api/interests/surf", None),
+        ("get", "/api/status", None),
+    ]
+    # ...and every mutating route that returns a body (errors included).
+    writes = [
+        ("put", "/api/settings", {"global": {"default_model": "m"}}),
+        ("post", "/api/interests",
+         {"name": "surf2", "start_time": "05:00", "interval_hours": 2}),
+        ("put", "/api/interests/surf", {"max_themes": 3}),
+        ("post", "/api/interests/surf/feeds",
+         {"name": "f", "url": "http://example.com/rss.xml"}),
+        ("delete", "/api/interests/surf/feeds/0", None),
+        ("post", "/api/interests/surf/rename", {"to": "surf-renamed"}),
+        ("post", "/api/interests/surf/trigger", {}),
+        ("delete", "/api/interests/surf-renamed", None),
+        # Error paths must not leak either.
+        ("post", "/api/interests", {"name": ""}),
+        ("put", "/api/interests/ghost", {"max_themes": 3}),
+        ("post", "/api/interests/surf-rename-again/rename", {"to": ""}),
+    ]
+    for method, path, payload in reads + writes:
+        kwargs = {} if payload is None else {"json": payload}
+        resp = getattr(client, method)(path, **kwargs)
+        body = resp.get_data(as_text=True)
+        for secret in secrets:
+            assert secret not in body, f"secret leaked via {method.upper()} {path}"
+        # Sanity: the exercised routes actually ran (not blocked at the
+        # gate, which would make the scan vacuous).
+        assert resp.status_code < 500, f"{method.upper()} {path} -> {resp.status_code}"
+
+    # The configured-state flag is exposed instead of the value itself.
+    body = client.get("/api/settings").get_json()
+    assert body["api_key_configured"] is True
+
+    # And neither secret ever landed in settings.toml through any route.
+    assert api_key not in settings_path.read_text()
+    assert smtp_password not in settings_path.read_text()
 
 
 def test_api_key_only_in_authorization_header(

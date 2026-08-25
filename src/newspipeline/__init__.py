@@ -1,9 +1,10 @@
-"""newspipeline — standalone local news pipeline agent.
+"""newspipeline — headless news pipeline server.
 
 RSS scraping, LLM-based theme analysis and content generation, with
-email and local-file delivery.
+email and local-file delivery; JSON configuration API + built-in
+scheduler for a VPS, managed by a desktop client over an SSH tunnel.
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

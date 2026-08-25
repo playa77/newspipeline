@@ -1,17 +1,18 @@
 """Built-in pipeline scheduler (DECISIONS.md D1).
 
-Runs inside the web app process on a dedicated thread with its own asyncio
+Runs inside the server process on a dedicated thread with its own asyncio
 event loop (Flask is sync — D2). Semantics:
 
 - one scheduler loop waking every 60 seconds
 - per-interest schedule: first run at start_time (HH:MM), then every
   interval_hours within the day
 - catch-up: on startup, run the most recently missed run per interest
+- startup sweep: orphaned 'running' rows are marked failed (D10, serve only)
 - an interest is "paused" when summary, script and brief are all disabled
 - per-interest concurrency guard: never two runs of the same interest
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 from __future__ import annotations
 
@@ -105,15 +106,16 @@ def is_paused(interest: dict[str, Any]) -> bool:
 class SchedulerThread:
     """Background-thread scheduler hosting its own asyncio event loop.
 
-    Interests are re-read from settings on every tick so edits made through
-    the web UI take effect without a restart. Runs are keyed by interest
-    name (D5).
+    Interests are re-read from settings on every tick so edits made
+    through the API take effect without a restart. Runs are keyed by
+    interest name (D5).
 
     The concurrency guard is two-layered: an in-memory task registry
     (guards within this process) plus `store.is_interest_running` (guards
-    against a second process running the same interest). Known limitation:
-    a run row left in 'running' state by a killed process blocks that
-    interest until the row is fixed.
+    against a second process running the same interest). Residual
+    limitation: this sweep runs at serve STARTUP only (D10), so a row
+    orphaned by a killed one-shot `run` while a serve is already up stays
+    'running' until the next serve restart.
     """
 
     def __init__(
@@ -199,6 +201,14 @@ class SchedulerThread:
     async def _main(self) -> None:
         self._lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
+        # Startup sweep (D10): a fresh serve start implies the previous
+        # process died, so 'running' rows can only be orphans. Runs before
+        # catch-up so a swept interest is immediately schedulable again.
+        # One-shot `newspipeline run` never constructs a SchedulerThread,
+        # so it cannot clobber a concurrent serve's legitimately running
+        # row. Synchronous on purpose: done before _ready is set, so
+        # callers of start() can rely on the sweep having happened.
+        self._store.sweep_orphaned_runs()
         catch_up = asyncio.create_task(self._run_catch_up())
         checker = asyncio.create_task(self._check_loop())
         self._ready.set()

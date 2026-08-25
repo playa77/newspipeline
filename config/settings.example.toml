@@ -1,8 +1,9 @@
-# newspipeline configuration — copy to config/settings.toml and edit,
-# or configure everything through the web UI (`newspipeline serve`).
+# newspipeline server configuration — copy to config/settings.toml and edit,
+# or configure everything through the JSON API (`newspipeline serve`, managed
+# by the newspipeline-client desktop app over an SSH tunnel).
 #
 # This file holds NO secrets. The LLM API key and SMTP password live in .env
-# and are never written here, never logged, and never shown in the UI.
+# and are never written here, never logged, and never sent in an API response.
 
 [global]
 # OpenAI-compatible endpoint. Default provider: OpenRouter.
@@ -11,7 +12,7 @@ api_base_url = "https://openrouter.ai/api/v1"
 default_model = "deepseek/deepseek-v4-flash-latest"
 # IANA timezone used for all schedule computations.
 timezone = "Europe/Berlin"
-# Directory for the "file" delivery mode (relative to project root or absolute).
+# Directory for the "file" delivery mode (relative to NEWSPIPELINE_HOME or absolute).
 output_dir = "output"
 
 [global.models]
@@ -32,6 +33,21 @@ host = "localhost"
 port = 25
 user = ""
 sender = "newspipeline@localhost"
+
+# --- Gmail relay example -----------------------------------------------------
+# To deliver through Gmail, create a DEDICATED sender Google account (the
+# receiver should be your different, personal address) and set:
+#
+# host   = "smtp.gmail.com"
+# port   = 587                 # STARTTLS submission port; TLS is verified
+# user   = "mynewsbot@gmail.com"  # the sending Gmail address itself
+# sender = "mynewsbot@gmail.com"  # same as user for Gmail
+#
+# The password is NOT this file's business: enable 2FA on the sender
+# account, create an App Password (Google Account -> Security -> 2-Step
+# Verification -> App passwords) and put it in .env as NEWS_SMTP_PASSWORD.
+# See README.md ("Gmail relay") for first-send security-review notes.
+# ------------------------------------------------------------------------------
 
 [user]
 # Your email address — fallback recipient when an interest has no recipient set.
