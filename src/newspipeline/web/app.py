@@ -18,18 +18,25 @@ Bound to 127.0.0.1 by default; single-user local app, no auth (documented
 in README — do not expose to a network).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
 import secrets
 from typing import Any
+from urllib.parse import urlsplit
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 from newspipeline import __version__, config
 from newspipeline.scheduler import is_paused
 from newspipeline.store import Store
+
+# Hosts this app may be reached under. The UI binds 127.0.0.1 and has no
+# auth (README); enforcing these names on every request closes drive-by
+# CSRF and DNS rebinding (reads included) from web pages open in the user's
+# browser.
+_LOOPBACK_NAMES = {"127.0.0.1", "localhost", "::1"}
 
 # Fields an interest form submits; everything else keeps its stored value.
 _INTEREST_TEXT_FIELDS = (
@@ -49,6 +56,12 @@ def _find_interest(settings: dict[str, Any], name: str) -> dict[str, Any] | None
     return next(
         (i for i in settings.get("interests", []) if i.get("name") == name), None,
     )
+
+
+def _host_is_loopback(host_header: str) -> bool:
+    """True when a Host/Origin netloc is this app's own loopback binding."""
+    name = (urlsplit(f"//{host_header}", scheme="http").hostname or "").lower()
+    return name in _LOOPBACK_NAMES
 
 
 def _parse_interest_form(form: Any, base: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
@@ -89,6 +102,31 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
     app.secret_key = secrets.token_hex(32)
     app.config["STORE"] = store if store is not None else Store()
     app.config["SCHEDULER"] = scheduler
+
+    @app.before_request
+    def _reject_cross_site_requests():
+        """Every request must arrive under a loopback Host; mutations must
+        additionally carry a loopback Origin when one is present.
+
+        A malicious web page can always SEND a request to 127.0.0.1 — what
+        it cannot do is forge the Host or Origin headers. A non-loopback
+        Host is a DNS-rebinding attempt and is rejected for reads and
+        writes alike. No Origin header is allowed (curl, systemd tooling);
+        a loopback Origin hostname with any port is accepted (the browser,
+        not the page, controls Origin). Safe methods are exempt from the
+        Origin check; anything else — including methods added later — is
+        origin-gated by default.
+        """
+        if not _host_is_loopback(request.host):
+            return "Rejected: non-local Host header", 403
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        origin = request.headers.get("Origin", "")
+        if origin:
+            o = urlsplit(origin)
+            if (o.hostname or "").lower() not in _LOOPBACK_NAMES:
+                return "Rejected: cross-site request", 403
+        return None
 
     @app.get("/")
     def index():

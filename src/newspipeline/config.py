@@ -34,7 +34,20 @@ logger = logging.getLogger(__name__)
 # the file atomically, so they see a complete old or new version.
 mutation_lock = threading.RLock()
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+def _resolve_project_root() -> Path:
+    """Locate the project root (config/, data/, .env live here).
+
+    ``NEWSPIPELINE_HOME`` overrides — for deployments outside the checkout.
+    Default is the editable-install layout (two levels above this file),
+    which keeps every existing setup untouched.
+    """
+    override = os.environ.get("NEWSPIPELINE_HOME", "")
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parents[2]
+
+
+PROJECT_ROOT = _resolve_project_root()
 SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.toml"
 SETTINGS_EXAMPLE_PATH = PROJECT_ROOT / "config" / "settings.example.toml"
 ENV_PATH = PROJECT_ROOT / ".env"

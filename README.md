@@ -45,6 +45,10 @@ Two files, strictly separated:
 | `.env` | **Secrets only**: `NEWS_API_KEY`, optional `NEWS_SMTP_PASSWORD` |
 | `config/settings.toml` | Everything else: LLM endpoint/model, interests, feeds, schedules, delivery, SMTP host/port |
 
+All paths (config, data, output) resolve relative to the checkout. Set
+`NEWSPIPELINE_HOME=/some/dir` to relocate them — the variable must be set
+for every process that touches state (`run`, `serve`, your systemd unit).
+
 Edit `config/settings.toml` directly (see `config/settings.example.toml` for
 a fully commented reference) or use the web UI:
 

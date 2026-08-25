@@ -334,3 +334,34 @@ Guards: tests/test_analyze_parse.py (13 unit cases incl. both review-found
 regressions) + integration pins for garbage-response and raising-LLM paths.
 Rejected alternative: JSON-mode/tool-call API parameters — not portable
 across arbitrary OpenAI-compatible endpoints (D2/D3 posture).
+
+## 2026-08-25 — R3 (human-decided): ESC-1 path resolution + ESC-2 localhost origin enforcement
+
+ESC-1: human chose fixing path resolution — `NEWSPIPELINE_HOME` env override,
+else the current `__file__`-relative root. Human's stated reason: "we do not
+want to break every actual install." Downstream: documented in README;
+existing editable setups are unaffected because the fallback is exactly the
+old behavior; a wrong override relocates state silently (failure scenario
+presented and accepted).
+
+ESC-2: human chose hardening — POST requests to the settings UI are
+rejected unless they originate from the local UI itself (Origin, when
+present, must be same-origin with a loopback Host; Host header must be a
+loopback name, which also defeats DNS rebinding). Chosen on re-ask without
+a distinct stated reason → recorded as delegated-with-warning per contract.
+Downstream: local CLI/tooling POSTs without an Origin header remain allowed;
+the documented no-auth posture is unchanged; only cross-site browser posts
+are blocked.
+
+### ESC-2 correction after review (2026-08-25)
+
+The first gate implementation checked the Host header only on POST/PUT/
+DELETE, leaving DNS-rebinding READ access to the settings page — the
+ledger claim "defeats DNS rebinding" was not delivered. Delivered now:
+the loopback-Host check applies to every request (reads included); the
+Origin check applies to all non-safe methods, default-deny for anything
+added later. Pinned tradeoff: a loopback Origin hostname with ANY port is
+accepted — browsers forge neither Host nor Origin, so hostname membership
+is the trust boundary; port mismatches are tolerated by design
+(test_web_origin.py pins this). Non-loopback `serve --host` values log a
+warning at startup (browsers would get 403s).

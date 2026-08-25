@@ -3,14 +3,42 @@ G3's re-read-every-tick contract: a scheduler tick must never observe a torn
 settings file) and the G1 secret-refusal scan at the write path.
 """
 
-# version: 0.2.1
+# version: 0.2.2
 
+import importlib
 import threading
 import tomllib
 
 import pytest
 
 from newspipeline import config
+
+
+def test_newspipeline_home_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("NEWSPIPELINE_HOME", str(tmp_path))
+    cfg = importlib.reload(config)
+    try:
+        assert cfg.PROJECT_ROOT == tmp_path.resolve()
+        assert cfg.SETTINGS_PATH == tmp_path / "config" / "settings.toml"
+        assert cfg.ENV_PATH == tmp_path / ".env"
+        assert cfg.DB_PATH == tmp_path / "data" / "news.db"
+    finally:
+        monkeypatch.delenv("NEWSPIPELINE_HOME")
+        importlib.reload(config)
+    assert config.PROJECT_ROOT != tmp_path.resolve()
+
+
+def test_newspipeline_home_empty_string_treated_as_unset(
+    monkeypatch, tmp_path, isolated_config,
+):
+    monkeypatch.setenv("NEWSPIPELINE_HOME", "")
+    cfg = importlib.reload(config)
+    try:
+        # Empty override must not relocate state to the CWD.
+        assert cfg.PROJECT_ROOT == config.SETTINGS_PATH.parent.parent
+    finally:
+        monkeypatch.delenv("NEWSPIPELINE_HOME")
+        importlib.reload(config)
 
 
 def _read_settings(path):

@@ -7,6 +7,14 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- **Path relocation:** set `NEWSPIPELINE_HOME=/some/dir` to resolve
+  `config/`, `data/`, `.env`, and `output/` under that directory instead of
+  the checkout (default behavior unchanged).
+- **Localhost origin gate:** the settings UI now rejects any request whose
+  Host header is not a loopback name (reads and writes — defeats DNS
+  rebinding), and any mutating request carrying a non-loopback Origin
+  (defeats drive-by CSRF from web pages). Local tooling without an Origin
+  header is unaffected; non-loopback binds log a startup warning.
 - Theme extraction in the analyze stage now tolerates markdown fences,
   prose wrapping, object-wrapped arrays, and citation-style brackets in the
   model response (previously any of these silently produced zero themes).

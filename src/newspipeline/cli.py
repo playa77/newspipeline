@@ -115,6 +115,14 @@ def _cmd_run(interest: str | None, run_all: bool) -> int:
 
 
 def _cmd_serve(host: str, port: int, no_scheduler: bool) -> int:
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        # The web UI rejects non-loopback Host headers (web/app.py origin
+        # gate), so a non-loopback bind would serve pages no browser can
+        # use — warn loudly instead of failing silently.
+        logger.warning(
+            "Binding to %s — the settings UI rejects non-local Host "
+            "headers; browsers on other machines will get 403s.", host,
+        )
     store = Store()
     scheduler: SchedulerThread | None = None
     if not no_scheduler:
