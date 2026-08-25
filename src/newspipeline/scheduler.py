@@ -11,7 +11,7 @@ event loop (Flask is sync — D2). Semantics:
 - per-interest concurrency guard: never two runs of the same interest
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
@@ -288,6 +288,16 @@ class SchedulerThread:
     ) -> str | None:
         """Start a run task unless one is in flight. Returns an error or None."""
         name = interest.get("name", "?")
+        api_key = self._get_api_key()
+        if not api_key:
+            # Consistent with the CLI's `run` command (cli.py): without a
+            # key the run would scrape everything, then fail at analyze and
+            # fire a failure alert for a known-missing precondition.
+            logger.warning(
+                "Run not launched — NEWS_API_KEY is not set (interest=%r, reason=%s)",
+                name, reason,
+            )
+            return "NEWS_API_KEY is not set — add it to .env first"
         assert self._lock is not None
         async with self._lock:
             task = self._running.get(name)
@@ -296,19 +306,22 @@ class SchedulerThread:
             if self._store.is_interest_running(name):
                 return f"A pipeline run for {name!r} is already in progress"
             self._running[name] = asyncio.create_task(
-                self._run_interest_safe(settings, interest)
+                self._run_interest_safe(settings, interest, api_key)
             )
         logger.info("Run launched — interest=%r reason=%s", name, reason)
         return None
 
     async def _run_interest_safe(
         self, settings: dict[str, Any], interest: dict[str, Any],
+        api_key: str,
     ) -> None:
         name = interest.get("name", "?")
         try:
             logger.info("Pipeline run starting — interest=%r", name)
+            # The key checked at launch is passed through rather than
+            # re-read here, so the gate and the pipeline see one value.
             pipeline = Pipeline(
-                store=self._store, settings=settings, api_key=self._get_api_key(),
+                store=self._store, settings=settings, api_key=api_key,
             )
             run_id = await pipeline.run(interest)
             run = self._store.get_run(run_id) or {}

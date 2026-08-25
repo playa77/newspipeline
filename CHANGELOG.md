@@ -7,6 +7,10 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- The scheduler no longer starts pipeline runs when `NEWS_API_KEY` is
+  unset: the launch is refused with the CLI's guidance (log warning;
+  UI flash on manual trigger) instead of producing a doomed run row and a
+  failure-alert email per scheduled slot.
 - `config/settings.toml` and `.env` are now written atomically
   (tmp file + `os.replace`); readers can never observe a torn file and a
   crash mid-write preserves the previous version. Web UI save routes hold

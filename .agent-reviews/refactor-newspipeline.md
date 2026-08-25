@@ -58,11 +58,18 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   reverted write path. Review pass 2 PASS (residual LOWs accepted:
   dict keys unscanned by secret scan — schema-controlled; dir-fsync omitted
   on power-loss tradeoff; temp-hygiene test covers settings path only).
-- HI-4 [OPEN] scheduler.py `_launch` starts runs without checking that an
+- HI-4 [FIXED — commit step 4] scheduler.py `_launch` starts runs without checking that an
   API key is configured (cli.py:108 checks). With no key, every scheduled
   slot produces a guaranteed-failed run row plus a failure-alert attempt —
   alert noise and DB rows for a known-missing precondition. Fix direction:
   pre-check in `_launch`, consistent with CLI semantics.
+  Resolution: gate in _launch, key passed through to Pipeline (review pass 1
+  FAIL caught duplicate import + stale version comment + TOCTOU re-read;
+  all fixed; pass 2 PASS). Guards: refusal test (no rows), passthrough +
+  completion-dispatch test, failure-alert dispatch sibling test.
+  Accepted LOWs: get_api_key file I/O on loop thread is frequency-bounded;
+  gate ordering may mislabel an exotic "no key while running" corner;
+  duplicated guidance string between cli.py and scheduler.py can drift.
 - HI-5 [OPEN] Run-completion dispatch duplicated: cli.py `_run_selected`
   and scheduler.py `_run_interest_safe` both implement
   run→status→deliver_run/deliver_failure_alert with slightly divergent
@@ -102,6 +109,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 | 0 | Stop condition logged, tracking file created | n/a (docs) | n/a | b774bb4 |
 | 1 | HI-1 scrape off-loop + G6 guard test | 23 passed; serve smoke 200 | pass 1 FAIL → rework → pass 2 PASS | 0ccf799 |
 | 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | 1d53097+532649c |
-| 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | (below) |
+| 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | 222d12e |
+| 4 | HI-4 scheduler API-key launch gate | 35 passed; serve smoke 200 | pass 1 FAIL → all findings applied → pass 2 PASS | (below) |
 
-M2 after step 3: `grep -c "\[OPEN\]"` = 3.
+M2 after step 4: `grep -c "\[OPEN\]"` = 2.

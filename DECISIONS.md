@@ -289,3 +289,16 @@ OS-level trust store.
   reverting to plain write_text locally (guard fails 3/3). Rejected
   alternative for lost updates between two browser tabs: optimistic
   versioning/ETags — overkill for a single-user local UI.
+
+## 2026-08-24 — R2: Scheduler refuses to launch runs without an API key (step 4)
+
+`SchedulerThread._launch` now checks the key before creating any run row or
+task and returns the same guidance the CLI prints; previously a scheduled
+slot with no key produced a scrape-then-fail run row plus a failure-alert
+email for a known-missing precondition. The gated value is passed through
+to `Pipeline` (single read — closes the gate-vs-consume TOCTOU flagged in
+review). Noise bound: one WARNING per scheduled slot per interest, not per
+tick. Guards: tests/test_scheduler.py launch-refusal (no rows) and
+launch-starts (key passthrough + completion branch dispatch), plus a
+failure-alert dispatch sibling. Rejected alternative: pre-check inside
+Pipeline.run — too late, the doomed row would already exist.
