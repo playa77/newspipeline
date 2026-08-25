@@ -7,6 +7,11 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Changed
 
+- Theme extraction in the analyze stage now tolerates markdown fences,
+  prose wrapping, object-wrapped arrays, and citation-style brackets in the
+  model response (previously any of these silently produced zero themes).
+  Junk output (arrays without theme objects) fails loudly into the existing
+  log-and-continue path, which now includes a truncated response excerpt.
 - Run-completion dispatch (deliver output vs failure alert) unified into
   `delivery.dispatch_finished_run`, shared by the CLI and the scheduler;
   previously duplicated with divergent error handling. Returns

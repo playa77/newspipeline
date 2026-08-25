@@ -316,3 +316,21 @@ entry points route through the shared function
 dispatch); cli.py references the function via module attribute so the spy
 cannot be bypassed by import-time binding. Rejected alternative: keeping
 the duplication with a comment cross-reference — drift was the defect.
+
+## 2026-08-24 — R2: Tolerant theme-array extraction replaces greedy regex in analyze (step 6)
+
+The old `re.search(r"\[.*\]", response, re.DOTALL)` silently lost the whole
+analyze stage whenever the model fenced, wrapped, or commented around the
+JSON array. `_extract_json_array` now strips fences and scans every
+top-level balanced `[...]` region (string/escape-aware; raw newlines end an
+open "string" because JSON forbids them — unpaired prose quotes can no
+longer poison the scan). Semantics: first array with ≥1 object wins;
+literal `[]` = legitimate "no themes" (returned); non-empty dictless arrays
+([1], ["x"]) raise loudly instead of masking as zero themes. Unparseable
+output raises ValueError into the stage's existing log-and-continue path,
+now logging a 500-char response excerpt (craft rule: diagnose from the
+log). Trailing commas remain fatal (unchanged legacy behavior; accepted).
+Guards: tests/test_analyze_parse.py (13 unit cases incl. both review-found
+regressions) + integration pins for garbage-response and raising-LLM paths.
+Rejected alternative: JSON-mode/tool-call API parameters — not portable
+across arbitrary OpenAI-compatible endpoints (D2/D3 posture).

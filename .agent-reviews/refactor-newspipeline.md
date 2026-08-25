@@ -79,12 +79,18 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
   scheduler via executor, CLI synchronous; dedup itself guarded by wrapping
   spy on both entry points. Review PASS (2 MEDIUMs + 3 LOWs applied
   pre-commit). Accepted LOWs: none outstanding.
-- HI-6 [OPEN] pipeline.py:236 extracts themes with greedy regex
+- HI-6 [FIXED — commit step 6] pipeline.py:236 extracts themes with greedy regex
   `re.search(r"\[.*\]", response, re.DOTALL)` — markdown fences, leading
   prose, or trailing commentary make parsing fail silently and the analyze
   stage yields zero themes while the run still reports completed. Fix
   direction: tolerant extraction (strip code fences, balanced-bracket scan),
   unit-tested.
+  Resolution: `_extract_json_array` (fence strip + all balanced regions,
+  string/escape/newline-aware; object-wrapped + citation-bracket cases
+  found by review pass 1 FAIL and fixed; junk arrays raise loudly; literal
+  [] legit). Integration pins for garbage/raising LLM. Pass 2 PASS.
+  Accepted LOWs: trailing commas remain fatal (legacy); empty-vs-junk-array
+  precedence documented in docstring.
 
 ## Pending human decision (escalated / acceptance candidates)
 
@@ -115,6 +121,7 @@ explicitly accepted by the human · [ESCALATED] awaiting human decision.
 | 2 | HI-2 STARTTLS verification (T2 flagged, approved) | 25 passed; serve smoke 200 | PASS (5 findings applied pre-commit) | 1d53097+532649c |
 | 3 | HI-3 atomic config writes + lock + G1 hardening (T1 flagged, approved) | 32 passed; serve smoke incl. POST save/api-key | pass 1 PASS w/ MEDIUMs → all applied → pass 2 PASS | 222d12e |
 | 4 | HI-4 scheduler API-key launch gate | 35 passed; serve smoke 200 | pass 1 FAIL → all findings applied → pass 2 PASS | 7618dcf |
-| 5 | HI-5 shared dispatch_finished_run | 39 passed; CLI run --all + serve smoke | PASS (2 MEDIUM + 3 LOW applied) | (below) |
+| 5 | HI-5 shared dispatch_finished_run | 39 passed; CLI run --all + serve smoke | PASS (2 MEDIUM + 3 LOW applied) | b7e326b |
+| 6 | HI-6 tolerant theme-array extraction | 59 passed; serve smoke 200 | pass 1 FAIL (2 HIGH verified) → rework → pass 2 PASS | (below) |
 
-M2 after step 5: `grep -c "\[OPEN\]"` = 1.
+M2 after step 6: `grep -c "\[OPEN\]"` = 0 (HI all resolved; ESC-1/ESC-2 pending human decision).

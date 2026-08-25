@@ -14,7 +14,7 @@ Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Iterator
 
 import feedparser
 import httpx
@@ -66,6 +66,90 @@ def detect_language(text: str) -> str:
         return "de" if de_count > en_count * 1.5 else "en"
     except Exception:
         return "en"
+
+
+def _extract_json_array(response: str) -> list[Any]:
+    """Extract a JSON array of theme objects from an LLM response.
+
+    Models wrap arrays in markdown fences, prose, or trailing commentary.
+    Strategy: strip code fences, try the whole text, then scan every
+    top-level balanced ``[...]`` region (string- and escape-aware; raw
+    newlines terminate an open "string" since JSON forbids them). The first
+    array containing at least one object wins; a literal ``[]`` anywhere is
+    treated as a legitimate "no themes" answer and takes precedence over a
+    dictless junk array. Raises ValueError when nothing usable is present —
+    callers log and continue with partial results rather than crashing.
+    """
+    text = response.strip()
+    # Strip a single markdown code fence pair if present.
+    fence = re.match(r"^```[a-zA-Z0-9]*\s*\n?(.*?)\n?```\s*$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    def _balanced_regions(t: str) -> "Iterator[str]":
+        """Yield every top-level ``[...]`` region that starts outside a
+        string literal (string- and escape-aware)."""
+        depth = 0
+        in_string = False
+        escaped = False
+        start = -1
+        for pos, ch in enumerate(t):
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                elif ch == "\n":
+                    # A raw newline cannot occur inside a JSON string, so an
+                    # open "string" here is really an unpaired quote in the
+                    # surrounding prose — drop the state, not the rest of
+                    # the input.
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "[":
+                if depth == 0:
+                    start = pos
+                depth += 1
+            elif ch == "]":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0:
+                        yield t[start:pos + 1]
+                        start = -1
+
+    candidates = [text, *_balanced_regions(text)]
+    saw_empty_array = False
+    junk_array: list[Any] | None = None
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, list):
+            # e.g. the whole response is an object like {"themes": [...]}.
+            # Not a win — but a bracket-scanned candidate may still follow.
+            continue
+        dicts = [item for item in parsed if isinstance(item, dict)]
+        if dicts:
+            return dicts
+        # An array without theme objects: a literal [] is a legitimate
+        # "no themes" answer; anything else ([1], ["x"]) is model junk.
+        if not parsed:
+            saw_empty_array = True
+        elif junk_array is None:
+            junk_array = parsed
+
+    if saw_empty_array:
+        return []
+    if junk_array is not None:
+        raise ValueError(
+            f"theme array contained no objects: {junk_array!r:.200}"
+        )
+    raise ValueError("no JSON array found in model response")
 
 
 class Pipeline:
@@ -234,6 +318,7 @@ class Pipeline:
         for i, text in enumerate(article_texts, 1):
             prompt += f"[{i}] {text}\n\n"
 
+        response: str | None = None
         try:
             response = await llm.chat_completion(
                 messages=[
@@ -245,23 +330,26 @@ class Pipeline:
                 max_tokens=2000,
                 reasoning_effort=self._reasoning_effort,
             )
-            match = re.search(r"\[.*\]", response, re.DOTALL)
-            if match:
-                themes = json.loads(match.group(0))
-                for i, theme in enumerate(themes[:max_themes]):
-                    self._store.insert_theme(
-                        run_id=run_id,
-                        title=theme.get("title", f"Theme {i+1}"),
-                        description=theme.get("description", ""),
-                        source_article_ids=theme.get("article_indices", []),
-                        order_index=i,
-                    )
-                logger.info(
-                    "Analyzed %d themes from %d articles — run=%d",
-                    len(themes), len(article_texts), run_id,
+            themes = _extract_json_array(response)
+            for i, theme in enumerate(themes[:max_themes]):
+                self._store.insert_theme(
+                    run_id=run_id,
+                    title=theme.get("title", f"Theme {i+1}"),
+                    description=theme.get("description", ""),
+                    source_article_ids=theme.get("article_indices", []),
+                    order_index=i,
                 )
+            logger.info(
+                "Analyzed %d themes from %d articles — run=%d",
+                len(themes), len(article_texts), run_id,
+            )
         except Exception as exc:
-            logger.error("Analysis failed for run %d: %s", run_id, exc)
+            # Include the offending response (truncated) so a parse failure
+            # can be diagnosed from the log alone.
+            logger.error(
+                "Analysis failed for run %d: %s — response=%s",
+                run_id, exc, (response or "")[:500],
+            )
 
     async def _generate(self, run_id: int, interest: dict[str, Any], llm: LLMClient) -> None:
         self._store.update_run(run_id, current_stage="generate")
