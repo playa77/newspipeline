@@ -14,7 +14,7 @@ fails fast with a clear error instead of hanging on an interactive
 password prompt.
 """
 
-# version: 0.3.0
+# version: 0.3.1
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ class TunnelManager:
             thread.join(timeout=10)
         self._proc = None
         self._thread = None
-        self._on_state("disconnected")
+        self._on_state("disconnected", None)
 
     # ---- worker side ---------------------------------------------------------
 
@@ -143,7 +143,7 @@ class TunnelManager:
         return "\n".join(self._stderr_tail).strip() or "(no output from ssh)"
 
     def _tunnel_main(self, host: str, user: str, server_port: int) -> None:
-        self._on_state("connecting")
+        self._on_state("connecting", None)
         for attempt in range(_PORT_BIND_ATTEMPTS):
             if self._stop.is_set():
                 return

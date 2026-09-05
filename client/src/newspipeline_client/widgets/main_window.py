@@ -1,13 +1,13 @@
 """Main window: connection bar (tunnel lifecycle + visible state) and the
 three management tabs."""
 
-# version: 0.3.0
+# version: 0.3.1
 
 from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
@@ -39,12 +39,26 @@ _STATE_STYLES = {
 }
 
 
+class _TunnelSignalBridge(QObject):
+    """Marshals TunnelManager callbacks (fired on the tunnel thread) onto the
+    GUI thread via queued signal connections — Qt widgets must only be touched
+    from the main thread."""
+
+    state = Signal(str, object)
+    error = Signal(str)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("newspipeline client")
         self.profile = Profile.load()
-        self.tunnel = TunnelManager(self._on_tunnel_state, self._on_tunnel_error)
+        self._tunnel_bridge = _TunnelSignalBridge()
+        self._tunnel_bridge.state.connect(self._on_tunnel_state)
+        self._tunnel_bridge.error.connect(self._on_tunnel_error)
+        self.tunnel = TunnelManager(
+            self._tunnel_bridge.state.emit, self._tunnel_bridge.error.emit
+        )
         self.client: ApiClient | None = None
 
         central = QWidget()

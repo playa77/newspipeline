@@ -117,6 +117,23 @@ profile (host, user, port — no secrets) persists under
 `~/.config/newspipeline-client/profile.json`; authentication is your
 normal SSH key.
 
+**SSH key requirement.** The tunnel runs `ssh` with `BatchMode=yes`, so
+only key-based auth works — password prompts are deliberately disabled to
+fail fast instead of hanging. Before first connect, install your key on
+the server account:
+
+```bash
+ssh-keygen -t ed25519             # skip if you already have a key
+ssh-copy-id <user>@<server-host>
+ssh -o BatchMode=yes <user>@<server-host> 'echo OK'   # must print OK
+```
+
+If connect fails with `Permission denied (publickey,password,...)`, the
+key for that user is missing or not accepted — re-run the steps above.
+(Errors like this are shown in the GUI without crashing: tunnel callbacks
+are marshalled onto the GUI thread, so an auth failure surfaces as an
+error dialog rather than a segfault.)
+
 Tabs mirror the old web UI: global settings, interests (CRUD, feeds,
 schedule, deliverable toggles, delivery modes, recipient override, paused
 banner, trigger-now), and run history. Renaming an interest keeps its

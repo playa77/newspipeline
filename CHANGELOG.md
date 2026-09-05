@@ -3,6 +3,19 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.3.2 — 2026-09-05 (client fix)
+
+### Fixed
+
+- **Client segfault on tunnel error:** `TunnelManager` fires its callbacks
+  from the tunnel thread, but `MainWindow` touched Qt widgets there
+  directly — an SSH auth failure crashed the GUI
+  (`QObject::setParent ... different thread`, segfault). Tunnel callbacks
+  are now marshalled onto the GUI thread via a queued Qt signal bridge
+  (`_TunnelSignalBridge` in `main_window.py`); errors surface as the
+  error dialog. `TunnelManager.stop()` now emits the 2-arg
+  `("disconnected", None)` state to match the bridge contract.
+
 ## 0.3.1 — 2026-09-05 (deployment)
 
 ### Added
