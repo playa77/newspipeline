@@ -1,6 +1,6 @@
 """Reusable Qt plumbing: run blocking API calls off the UI thread."""
 
-# version: 0.3.0
+# version: 0.3.1
 
 from __future__ import annotations
 
@@ -10,6 +10,15 @@ from typing import Any, Callable
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
 logger = logging.getLogger(__name__)
+
+# In-flight ApiCall references. QThreadPool auto-deletes a runnable the
+# moment run() returns — on the worker thread — which would garbage-collect
+# the _CallSignals QObject while its queued cross-thread signal is still
+# pending delivery on the GUI thread (shiboken then dereferences a dead
+# wrapper in sendPostedEvents -> segfault). Holding the reference until the
+# signal has actually been delivered keeps the sender alive for the whole
+# round trip.
+_pending: set[ApiCall] = set()
 
 
 class _CallSignals(QObject):
@@ -25,10 +34,17 @@ class ApiCall(QRunnable):
         on_failed: Callable[[str], None],
     ):
         super().__init__()
+        self.setAutoDelete(False)  # lifetime is managed via _pending instead
         self.fn = fn
         self.signals = _CallSignals()
         self.signals.done.connect(on_done)
         self.signals.failed.connect(on_failed)
+        # Release our reference last, after the caller's handlers ran.
+        self.signals.done.connect(self._release)
+        self.signals.failed.connect(self._release)
+
+    def _release(self, *_args) -> None:
+        _pending.discard(self)
 
     def run(self) -> None:
         try:
@@ -46,7 +62,9 @@ def submit(
     on_failed: Callable[[str], None],
 ) -> None:
     """Run ``fn`` (a blocking ApiClient call) on the global thread pool."""
-    QThreadPool.globalInstance().start(ApiCall(fn, on_done, on_failed))
+    call = ApiCall(fn, on_done, on_failed)
+    _pending.add(call)
+    QThreadPool.globalInstance().start(call)
 
 
 def show_error(parent, message: str) -> None:

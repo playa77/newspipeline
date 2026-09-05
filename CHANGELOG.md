@@ -3,6 +3,24 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.3.3 — 2026-09-05 (client fix)
+
+### Fixed
+
+- **Client segfault after any mutation (e.g. adding the first feed):**
+  `ApiCall` (workers.py) emitted its `done`/`failed` signal from a
+  `QThreadPool` worker thread, but the pool auto-deletes a runnable the
+  moment `run()` returns — on the worker thread. That dropped the last
+  Python reference to the `_CallSignals` QObject while its queued
+  cross-thread signal was still pending delivery on the GUI thread, and
+  shiboken dereferenced the dead sender wrapper in
+  `sendPostedEvents` → hard segfault. Whether a given mutation survived
+  was a pure race. The runnable now disables auto-delete and is kept
+  referenced in a module-level `_pending` set until the signal has
+  actually been delivered (verified with a 3000-call offscreen stress
+  test and a headless create-interest → add-feed run against the real
+  Flask server; previously 5/5 crashed, now 0/5).
+
 ## 0.3.2 — 2026-09-05 (client fix)
 
 ### Fixed
