@@ -3,6 +3,17 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.3.1 — 2026-09-05 (deployment)
+
+### Added
+
+- **Production deployment (R3):** deployed the server to the shared brainy
+  VPS (37.60.240.152) as a native systemd service using
+  `deploy/newspipeline.service` — no Docker, state under
+  `/var/lib/newspipeline`, API loopback-only on 8421. Deployment record in
+  `DEPLOYMENT.md` (safe to commit; secrets live only in the VPS-side
+  `/var/lib/newspipeline/.env`).
+
 ## 0.3.0 — 2026-08-25 (client/server transformation)
 
 ### Added
