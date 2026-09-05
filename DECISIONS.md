@@ -481,3 +481,30 @@ observation itself stands.
   leaves such rows untouched. Guarded via tests/test_startup_sweep.py
   (test_serve_startup_sweeps_orphaned_rows,
   test_cli_run_does_not_sweep).
+
+## 2026-09-05 — Invariant G10 added: LLM null/empty content is a retryable failure (R2)
+
+- First real "completed but silent" run: glm-5.3-flash (mandatory
+  reasoning, default effort max) returned HTTP 200 with
+  message.content=null — max_tokens=2000 fully consumed by reasoning
+  tokens. llm.py returned the null as a successful result,
+  _extract_json_array(None) crashed ('NoneType' object has no attribute
+  strip), the exception was swallowed as "Analysis failed", and the run
+  completed with zero themes → zero deliverables → zero emails (and an
+  empty output dir). A second trigger found no fresh articles (global
+  URL dedupe) and again "completed" with nothing delivered. The mailer
+  was correct; the failure was upstream and silent.
+- G10 — an LLM response with null/empty message content must never be
+  returned as a success: LLMClient.chat_completion raises LLMError for
+  it and takes the normal retry path. Guarded via
+  tests/test_llm_null_content.py (retry-then-raise, recover-on-retry,
+  empty-string parity, glm-5.3-flash-shaped payload).
+- Note: with reasoning models, "content is null" is usually a token
+  budget problem, not a model outage. If G10 retries exhaust, raise
+  max_tokens or set [global.reasoning] effort to low/high in
+  settings.toml — do not weaken G10.
+- Operational lesson recorded for future debugging: a run row saying
+  status=completed is NOT evidence anything was produced or delivered.
+  Check themes/deliverables/briefs counts and the "emails sent — N"
+  log line (N=0 is a red flag) before suspecting the mailer.
+

@@ -3,6 +3,21 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.3.4 — 2026-09-05 (server fix)
+
+### Fixed
+
+- **LLM null-content treated as success (G10):** reasoning models with a
+  mandatory thinking phase (e.g. z-ai/glm-5.3-flash at default effort
+  `max`) can exhaust `max_tokens` on reasoning tokens and answer HTTP 200
+  with `message.content = null`. `LLMClient.chat_completion` returned that
+  null as a successful result; the analysis stage then crashed on
+  `_extract_json_array(None)`, the error was swallowed, and the run
+  "completed" with zero themes → zero deliverables → zero emails — no
+  mail, no files, no surfaced failure. Null/empty content is now an
+  `LLMError` that takes the normal retry path
+  (tests/test_llm_null_content.py).
+
 ## 0.3.3 — 2026-09-05 (client fix)
 
 ### Fixed

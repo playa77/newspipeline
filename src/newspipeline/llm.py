@@ -8,7 +8,7 @@ The API key is used only for the Authorization header and is never logged
 (invariant G1).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 from __future__ import annotations
 
@@ -74,7 +74,17 @@ class LLMClient:
                     raise LLMError(f"transient HTTP {resp.status_code}: {resp.text[:200]}")
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                content = data["choices"][0]["message"]["content"]
+                if not content:
+                    # Reasoning models with a mandatory thinking phase (e.g.
+                    # glm-5.3-flash at effort "max") can exhaust max_tokens on
+                    # reasoning alone and answer HTTP 200 with content=null.
+                    # That is a retryable upstream failure, not a result.
+                    raise LLMError(
+                        "upstream returned null/empty message content "
+                        "(max_tokens likely consumed by reasoning tokens)"
+                    )
+                return content
             except (LLMError, httpx.HTTPError, KeyError, IndexError) as exc:
                 last_exc = exc
                 if attempt < _MAX_RETRIES:

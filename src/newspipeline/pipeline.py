@@ -14,7 +14,7 @@ Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 from __future__ import annotations
 
@@ -327,7 +327,10 @@ class Pipeline:
                 ],
                 model=self._stage_model("analysis"),
                 temperature=0.3,
-                max_tokens=2000,
+                # Reasoning models spend from this budget on thinking too —
+                # a 2k cap starves glm-5.3-flash at default effort "max"
+                # into returning content=null (G10's trigger).
+                max_tokens=32000,
                 reasoning_effort=self._reasoning_effort,
             )
             themes = _extract_json_array(response)
@@ -377,7 +380,8 @@ class Pipeline:
                         ],
                         model=model,
                         temperature=0.5,
-                        max_tokens=2000,
+                        # 32k: reasoning tokens share this budget (G10).
+                        max_tokens=32000,
                         reasoning_effort=self._reasoning_effort,
                     )
                     self._store.insert_deliverable(
@@ -398,7 +402,8 @@ class Pipeline:
                         ],
                         model=model,
                         temperature=0.6,
-                        max_tokens=3000,
+                        # 32k: reasoning tokens share this budget (G10).
+                        max_tokens=32000,
                         reasoning_effort=self._reasoning_effort,
                     )
                     self._store.insert_deliverable(
@@ -420,7 +425,8 @@ class Pipeline:
                         ],
                         model=model,
                         temperature=0.6,
-                        max_tokens=3000,
+                        # 32k: reasoning tokens share this budget (G10).
+                        max_tokens=32000,
                         reasoning_effort=self._reasoning_effort,
                     )
                     self._store.insert_deliverable(
@@ -472,7 +478,8 @@ class Pipeline:
                 ],
                 model=self._stage_model("brief"),
                 temperature=0.4,
-                max_tokens=1500,
+                # 32k: reasoning tokens share this budget (G10).
+                max_tokens=32000,
                 reasoning_effort=self._reasoning_effort,
             )
             self._store.insert_brief(run_id=run_id, content=response)
