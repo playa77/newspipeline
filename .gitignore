@@ -23,3 +23,6 @@ output/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+#misc
+prompts/

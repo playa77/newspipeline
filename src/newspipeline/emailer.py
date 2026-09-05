@@ -8,10 +8,11 @@ The SMTP password comes from .env (NEWS_SMTP_PASSWORD), never from
 settings.toml, and is never logged (invariant G1).
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 from __future__ import annotations
 
+import json
 import logging
 import smtplib
 import ssl
@@ -26,6 +27,36 @@ logger = logging.getLogger(__name__)
 
 _SMTP_MAX_RETRIES = 2
 _SMTP_RETRY_BACKOFF_SECONDS = 10
+
+
+def build_source_links(
+    *,
+    run_id: int,
+    source_article_ids: list[int],
+    store: Any,
+) -> list[dict[str, str]]:
+    """Resolve a theme's 1-based source article indices to title/url pairs.
+
+    Unresolvable indices are skipped. Used for both theme emails and the
+    daily brief email so links render consistently.
+    """
+    links: list[dict[str, str]] = []
+    for art in store.get_articles_by_ids(run_id, source_article_ids):
+        url = art.get("url") or ""
+        if not url:
+            continue
+        links.append({"title": art.get("title") or url, "url": url})
+    return links
+
+
+def _format_links_section(name: str, links: list[dict[str, str]]) -> str:
+    """Render a 'Sources' block: '1. Title — <url>' per line."""
+    if not links:
+        return ""
+    lines = [f"Sources ({name}):"]
+    for i, link in enumerate(links, 1):
+        lines.append(f"{i}. {link['title']} — {link['url']}")
+    return "\n".join(lines)
 
 
 class EmailerError(Exception):
@@ -110,10 +141,28 @@ def send_pipeline_results(
     if interest.get("enable_brief"):
         brief = store.get_brief_for_run(run_id)
         if brief:
+            # The brief covers every theme in the run — collect the union of
+            # all themes' source links, then dedupe by URL, preserving order.
+            seen: set[str] = set()
+            brief_links: list[dict[str, str]] = []
+            for theme in store.get_themes_for_run(run_id):
+                ids = theme.get("source_article_ids") or []
+                if isinstance(ids, str):
+                    ids = json.loads(ids)
+                for link in build_source_links(
+                    run_id=run_id, source_article_ids=ids, store=store
+                ):
+                    if link["url"] not in seen:
+                        seen.add(link["url"])
+                        brief_links.append(link)
+
+            brief_parts = [brief.get("content", "")]
+            if brief_links:
+                brief_parts.append(_format_links_section(name, brief_links))
             send_email(
                 **smtp_kwargs,
                 subject=f"{name} Daily Brief — {run_date}",
-                body=brief.get("content", ""),
+                body="\n\n".join(brief_parts),
             )
             emails_sent += 1
 
@@ -127,6 +176,15 @@ def send_pipeline_results(
                 script = d.get("content")
             elif dtype == "script_de" and interest.get("enable_script_de"):
                 script_de = d.get("content")
+        if not (summary or script or script_de):
+            continue
+
+        theme_name = theme.get("title", "Untitled")
+        ids = theme.get("source_article_ids") or []
+        if isinstance(ids, str):
+            ids = json.loads(ids)
+        links = build_source_links(run_id=run_id, source_article_ids=ids, store=store)
+        links_section = _format_links_section(theme_name, links)
 
         parts: list[str] = []
         if summary:
@@ -135,12 +193,12 @@ def send_pipeline_results(
             parts.append(f"=== SCRIPT (EN) ===\n{script}")
         if script_de:
             parts.append(f"=== SCRIPT (DE) ===\n{script_de}")
-        if not parts:
-            continue
+        if links_section:
+            parts.append(links_section)
 
         send_email(
             **smtp_kwargs,
-            subject=f"{name} Theme: {theme.get('title', 'Untitled')} — {run_date}",
+            subject=f"{name} Theme: {theme_name} — {run_date}",
             body="\n\n".join(parts),
         )
         emails_sent += 1

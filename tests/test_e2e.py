@@ -4,7 +4,7 @@ and file output. Plus an end-to-end email-delivery test against a fake SMTP
 server (unauthenticated path only — authenticated SMTP is T2).
 """
 
-# version: 0.1.0
+# version: 0.2.0
 
 import asyncio
 from email import message_from_string
@@ -102,3 +102,16 @@ def test_email_delivery_end_to_end(isolated_config, fixture_server, smtp_server,
     assert any("=== SUMMARY ===" in b and "=== SCRIPT (EN) ===" in b for b in bodies)
     assert all("=== SCRIPT (DE) ===" not in b for b in bodies)  # script_de disabled
     assert all("e2e-key" not in b for b in bodies)  # no secret leakage
+
+    # Source-article links: every theme email carries its theme's sources;
+    # the brief email carries the deduplicated union of all sources.
+    theme_bodies = [b for (s, b), _ in zip(parsed, parsed) if "Theme:" in s]
+    assert len(theme_bodies) == 2
+    for body in theme_bodies:
+        assert "Sources (Renewable Energy Surge):" in body or \
+               "Sources (Grid Storage Policy):" in body, body
+        assert "http://127.0.0.1" in body, body
+    brief_body = next(b for (s, b) in parsed if "Daily Brief" in s)
+    assert "Sources (guard-fixture):" in brief_body
+    # Union of sources: article a1 appears in both themes but only once in the brief.
+    assert brief_body.count("http://127.0.0.1") == 2

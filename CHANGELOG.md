@@ -3,6 +3,27 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.4.0 — 2026-09-05 (feature)
+
+### Added
+
+- **Source-article links in result emails:** every theme email and the
+  daily-brief email now end with a `Sources (...)` section listing each
+  contributing article as `N. Title — <url>` (plain text). Theme emails
+  list their own theme's sources (resolved from the theme's 1-based
+  `source_article_ids` via the new `Store.get_articles_by_ids`);
+  the brief email lists the URL-deduplicated union of all themes'
+  sources, since the brief synthesizes across themes. Emails remain
+  plain text (G1 model unchanged); new `tests/test_e2e.py` assertions
+  cover both.
+- **Exported prompts:** all six LLM prompts are exported verbatim to
+  `prompts/` (`analyze_themes.txt`, `generate_summary.txt`,
+  `generate_script_en.txt`, `generate_script_de.txt`,
+  `generate_daily_brief_en.txt`, `generate_daily_brief_de.txt`) with
+  `SYSTEM:`/`USER:` role markers and `{placeholder}` annotations, for
+  human prompt-quality review; updated files will be imported back into
+  `pipeline.py`.
+
 ## 0.3.4 — 2026-09-05 (server fix)
 
 ### Fixed

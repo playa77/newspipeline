@@ -10,7 +10,7 @@ A single connection guarded by a lock is shared between the Flask thread
 and the scheduler thread; WAL mode allows concurrent readers.
 """
 
-# version: 0.3.0
+# version: 0.4.0
 
 from __future__ import annotations
 
@@ -258,6 +258,23 @@ class Store:
         return [dict(r) for r in rows]
 
     # ---- Themes ----
+
+    def get_articles_by_ids(self, run_id: int, article_ids: list[int]) -> list[dict[str, Any]]:
+        """Fetch articles by their (1-based) index within a run's article list.
+
+        Out-of-range indices are silently dropped; order follows ``article_ids``.
+        """
+        if not article_ids:
+            return []
+        rows = self._execute(
+            "SELECT * FROM articles WHERE run_id = ? ORDER BY id", (run_id,)
+        ).fetchall()
+        articles = [dict(r) for r in rows]
+        result = []
+        for aid in article_ids:
+            if 1 <= aid <= len(articles):
+                result.append(articles[aid - 1])
+        return result
 
     def insert_theme(
         self, *, run_id: int, title: str, description: str,
