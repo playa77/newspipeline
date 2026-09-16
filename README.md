@@ -34,13 +34,20 @@ browser-originated requests on the machines themselves.
 - Pipeline stages: **scrape** (RSS + full-article extraction) →
   **analyze** (LLM theme identification) → **generate** (summary,
   EN/DE YouTube scripts) → **brief** (daily synthesis)
+- **Report documents**: every generate/brief answer is stored as a document
+  (headline, deck, sections, per-topic sources — `document.py`, built by
+  `compose.py`). The HTML email, the plain-text mail part and the markdown
+  archive are three renderings of that one structure, so no output format is
+  derived from another. A model that answers without the expected structure
+  degrades to a prose document instead of failing the run.
 - **Built-in scheduler**: per-interest start time + interval, catch-up of
   missed runs on startup, startup sweep of runs interrupted by a crash,
   pause by disabling all deliverables
 - **Delivery**: email via SMTP (Gmail relay documented below; sent as
-  multipart/alternative — plain markdown plus HTML rendered by the
-  `markdown` package, so Gmail shows headings, lists, and clickable source
-  links) and/or local markdown files (a server-side archive)
+  multipart/alternative — a designed HTML report plus a plain-text part
+  rendered from the same document, so Gmail, Apple Mail and Outlook show the
+  layout, and every topic's sources are linked under that topic) and/or local
+  markdown files (a server-side archive of the same documents)
 - **Any OpenAI-compatible LLM endpoint** (default: OpenRouter), per-stage
   model overrides, optional reasoning effort
 - Secrets in `.env` on the server only — never in config files, never in

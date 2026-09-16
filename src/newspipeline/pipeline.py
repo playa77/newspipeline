@@ -10,11 +10,16 @@ Stages:
 3. generate — per-theme deliverables: summary, EN script, optional DE script
 4. brief    — daily brief synthesizing all themes, EN/DE auto-detected
 
+Every generate/brief answer is stored as a report document (document.py,
+built by compose.py): the HTML email, the text part and the markdown archive
+are all renderings of that one structure, and no output format is derived
+from another.
+
 Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.4.0
+# version: 0.5.0
 
 from __future__ import annotations
 
@@ -29,7 +34,9 @@ import httpx
 import trafilatura
 
 from newspipeline.llm import LLMClient
+from newspipeline import compose
 from newspipeline import prompts as P
+from newspipeline.document import Document
 from newspipeline.store import Store, utcnow_iso
 
 logger = logging.getLogger(__name__)
@@ -151,6 +158,19 @@ def _extract_json_array(response: str) -> list[Any]:
             f"theme array contained no objects: {junk_array!r:.200}"
         )
     raise ValueError("no JSON array found in model response")
+
+
+def _document_json(document: Document) -> str:
+    """Serialize a report document for storage (see document.DOCUMENT_FORMAT)."""
+    return json.dumps(document.to_dict(), ensure_ascii=False)
+
+
+def _article_ids(theme: dict[str, Any]) -> list[int]:
+    """A theme's source article indices (stored as a JSON string in sqlite)."""
+    ids = theme.get("source_article_ids") or []
+    if isinstance(ids, str):
+        ids = json.loads(ids)
+    return ids
 
 
 class Pipeline:
@@ -364,7 +384,7 @@ class Pipeline:
         for theme in themes:
             try:
                 if enable_summary:
-                    target_words = interest.get("target_summary_words", 750)
+                    target_words = interest.get("target_summary_words", 600)
                     prompt = (
                         P.SUMMARY_USER.format(
                             target_words=target_words,
@@ -383,8 +403,15 @@ class Pipeline:
                         max_tokens=32000,
                         reasoning_effort=self._reasoning_effort,
                     )
+                    document = compose.summary_document(
+                        payload=compose.extract_json_object(response),
+                        raw=response,
+                        theme_title=theme["title"],
+                        theme_description=theme["description"],
+                    )
                     self._store.insert_deliverable(
-                        theme_id=theme["id"], deliverable_type="summary", content=response,
+                        theme_id=theme["id"], deliverable_type="summary",
+                        content=_document_json(document),
                     )
 
                 if enable_script:
@@ -408,7 +435,12 @@ class Pipeline:
                         reasoning_effort=self._reasoning_effort,
                     )
                     self._store.insert_deliverable(
-                        theme_id=theme["id"], deliverable_type="script", content=script,
+                        theme_id=theme["id"], deliverable_type="script",
+                        content=_document_json(
+                            compose.script_document(
+                                payload=compose.extract_json_object(script), raw=script
+                            )
+                        ),
                     )
 
                 if enable_script_de:
@@ -432,7 +464,13 @@ class Pipeline:
                         reasoning_effort=self._reasoning_effort,
                     )
                     self._store.insert_deliverable(
-                        theme_id=theme["id"], deliverable_type="script_de", content=script_de,
+                        theme_id=theme["id"], deliverable_type="script_de",
+                        content=_document_json(
+                            compose.script_document(
+                                payload=compose.extract_json_object(script_de),
+                                raw=script_de,
+                            )
+                        ),
                     )
 
                 logger.info("Generated content for theme: %s", theme["title"])
@@ -447,8 +485,11 @@ class Pipeline:
         if not themes:
             return
 
+        # Themes are numbered: the brief prompt promises numbers, and the
+        # model echoes the number back per section ("theme_number"), which is
+        # what binds a topic's source links to that topic (compose.brief_document).
         theme_summaries = "\n\n".join(
-            f"## {t['title']}\n{t['description']}" for t in themes
+            f"## {n}. {t['title']}\n{t['description']}" for n, t in enumerate(themes, 1)
         )
         target_brief = interest.get("target_brief_words", 600)
 
@@ -479,7 +520,27 @@ class Pipeline:
                 max_tokens=32000,
                 reasoning_effort=self._reasoning_effort,
             )
-            self._store.insert_brief(run_id=run_id, content=response)
+            # The brief document carries each topic's own sources: a section
+            # the model tied to theme n gets that theme's articles, and any
+            # theme it left out gets a heading-only section with its own links
+            # (compose.brief_document). Nothing is pooled and nothing is lost.
+            sources_by_theme = {
+                n: compose.resolve_sources(self._store, run_id, _article_ids(theme))
+                for n, theme in enumerate(themes, 1)
+            }
+            document = compose.brief_document(
+                payload=compose.extract_json_object(response),
+                raw=response,
+                themes=themes,
+                sources_by_theme=sources_by_theme,
+                interest_name=interest.get("name", "Interest"),
+                run_date=(self._store.get_run(run_id) or {}).get("run_date", ""),
+            )
+            self._store.insert_brief(
+                run_id=run_id,
+                content=_document_json(document),
+                word_count=document.word_count(),
+            )
             logger.info("Generated daily brief for run %d (language=%s)", run_id, language)
         except Exception as exc:
             logger.error("Brief generation failed for run %d: %s", run_id, exc)

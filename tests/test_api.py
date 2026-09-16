@@ -68,7 +68,7 @@ def test_interest_crud_round_trip(api):
     created = resp.get_json()["interest"]
     assert created["name"] == "Tech"
     assert created["paused"] is False
-    assert created["target_summary_words"] == 750  # defaults applied
+    assert created["target_summary_words"] == 600  # defaults applied
 
     listed = api.get("/api/interests").get_json()["interests"]
     assert [i["name"] for i in listed] == ["Tech"]

@@ -309,10 +309,15 @@ class Store:
 
     # ---- Briefs ----
 
-    def insert_brief(self, *, run_id: int, content: str) -> None:
+    def insert_brief(self, *, run_id: int, content: str, word_count: int) -> None:
+        """Store the brief document JSON with its prose word count.
+
+        ``word_count`` is computed from the document (Document.word_count),
+        not from the stored JSON — the JSON is not prose.
+        """
         self._execute(
             "INSERT INTO briefs (run_id, content, word_count) VALUES (?, ?, ?)",
-            (run_id, content, len(content.split())),
+            (run_id, content, word_count),
         )
 
     def get_brief_for_run(self, run_id: int) -> dict[str, Any] | None:

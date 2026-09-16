@@ -508,3 +508,127 @@ observation itself stands.
   Check themes/deliverables/briefs counts and the "emails sent — N"
   log line (N=0 is a red flag) before suspecting the mailer.
 
+## 2026-09-16 — D12: Per-topic summary target lowered 750 → 600 words (R1)
+
+Operator ruling: "the articles generated per topic are too long. set them to
+~600 words instead of ~750." Implemented as the default in all four places the
+750 was hardcoded: `pipeline.py::_generate` (fallback when an interest omits
+the key), `web/app.py::_INTEREST_DEFAULTS` (creation defaults), 
+`config/settings.example.toml`, and the desktop client's word-spin default
+(`widgets/interests_tab.py`); `tests/test_api.py` now asserts the 600 creation
+default. No prompt change was needed: `SUMMARY_USER` already interpolates
+`{target_words}` with a ±10% tolerance. Rejected alternative: leave the default
+at 750 and set 600 only on today's interests — rejected because every
+future interest would silently inherit the stale 750. Reversible in minutes.
+
+Scope caveat for the live install: `target_summary_words` is persisted
+explicitly per interest in `settings.toml` (verified through
+`GET /api/interests` on 2026-09-16, which returns the interests verbatim), so
+the five existing interests keep 750 until they are edited explicitly — the
+code default only governs newly created interests.
+
+## 2026-09-16 — Diagnosis, no decision yet: HTML emails have no structure because the 0.4.x prompt rewrite stopped asking for markdown (R2 — awaiting operator ruling)
+
+- Verified locally: `emailer.markdown_to_html()` renders markdown input into
+  `<h1>`/`<h2>`/`<ul>`/`<strong>`/`<a>`, while prose-only input yields exactly
+  one heading (the emailer's own `## Summary`) plus `<p>` blocks. The HTML
+  part's richness is therefore 100% a property of the model's text.
+- Verified: commit 9cda53b introduced the HTML part and replaced all six
+  prompts in the same change. `SUMMARY_USER` now prescribes prose only (a
+  headline line, a lede, one to three paragraphs) and no prompt in the set asks
+  for markdown. The pre-sprint one-liner ("Write a well-structured,
+  journalistic summary with a headline") left formatting to the model, whose
+  markdown travelled verbatim in the old plain-text email — that is the "more
+  sophisticated formatting with the markdown" the operator remembers.
+- Test gap that let it through: `tests/conftest.py`'s mock LLM answers
+  "Generated fixture content for model X." for summaries/scripts/brief, and
+  `tests/test_e2e.py` asserts only the section headings the emailer adds itself
+  (`<h2>Summary</h2>`, `<h2>Script (EN)</h2>`). Nothing expresses "markdown
+  from the model must render into structure".
+- Not verifiable from the dev box: the live summary/brief text and the HTML of
+  the received emails — the DB under the service's home is root-only, so a
+  sample has to come from the operator.
+- Companion open item: daily-brief source links are one deduplicated union
+  dumped at the end of the brief (`emailer.send_pipeline_results`), with no
+  attribution to a theme; the operator rejected that shape as worthless and
+  asked for per-topic attribution (design not yet ruled).
+
+## 2026-09-16 — HTML is first-class output: markdown-derived composition dropped (R2, operator-directed)
+
+Operator ruling: "the html is now, of course, first-class output, just as the
+markdown is. the html can therefore not be derived from the markdown, but the
+design must be made for html in the first place" — followed by "drop your
+current design completely, it cannot be trusted to be optimal since it was
+derived from markdown, not first-class."
+
+- The intermediate per-topic-source design built earlier today (a `SOURCES: n`
+  marker contract substituted into the brief markdown, with a `render.py` and
+  its test file) was **reverted in full** on that instruction: nothing of it
+  remains in the tree. The 600-word change from earlier stands; the brief's
+  pooled source list is back to its pre-session state.
+- New architecture, now in the tree: `document.py` holds the block model
+  (`Document`/`Section`/`Paragraph`/`Bullets`/`Source`) and the **markdown
+  archive renderer** (`Document.to_markdown`, a sibling output);
+  `email_layout.py` holds the **HTML renderer** (the design: table layout,
+  inline styles, preheader, dark-mode-aware palette, per-topic source blocks)
+  and the **plain-text renderer** built from the same document. 33 guard tests
+  in `tests/test_email_layout.py` assert the HTML itself, not its source text.
+- The support rules and their sources are recorded in the user-local
+  `html-email-reports` skill (with `references/client-support.md`: caniemail
+  data, RFC 5322/2046, W3C contrast) so the next change to the layout starts
+  from the client-support facts instead of re-deriving them.
+- Not yet wired: `emailer.send_email` still renders the old markdown-derived
+  HTML. Wiring needs the decision below.
+
+## 2026-09-16 — OPEN (R3, awaiting operator): how structured deliverables are persisted
+
+The HTML-first architecture only pays off if the structure exists at
+generation time (headline, deck, paragraphs, bullets, and — for the brief —
+sections that name the theme they report on). Today `deliverables.content` and
+`briefs.content` hold free prose/markdown, which is exactly the markdown
+derivation that was just rejected. Options, recommendation first:
+
+- **(a) Additive nullable columns** (`content_json` on `deliverables` and
+  `briefs`), keeping `content` as the markdown archive rendering. Old rows keep
+  rendering as they do today, no reader breaks, migration is additive.
+  *Recommended.*
+- **(b) JSON in the existing `content` column**, format-detected on read.
+  No schema change, but every consumer must branch and old rows mean the
+  column has two formats.
+- **(c) Persist prose only** and let delivery re-derive structure — rejected:
+  that is the markdown-derived design the operator just dropped.
+
+Batched with it (R2, same round): whether the generation prompts return
+**structured content** (JSON with headline/deck/paragraphs/bullets, and brief
+sections naming their theme) with a graceful fallback to the current prose
+shape when a model answers with non-JSON, so a run never fails on format.
+
+## 2026-09-16 — R3 resolved: documents are stored as JSON in `content`; structured generation approved (operator)
+
+Operator ruling on the options above: "this is a fresh install and nothing
+outside of tests has ever run, backward compatibility is not of any concern
+here", and on structured generation: "your recommendation is approved".
+
+- **Stored format:** the existing `deliverables.content` and `briefs.content`
+  columns hold the document JSON (`Document.to_dict()`, marker
+  `DOCUMENT_FORMAT = 1`). No parallel column, no dual format, no NULL
+  handling: with no legacy rows to keep alive, one canonical format is
+  cleaner than a migration-shaped one. The markdown archive is rendered at
+  file-output time (`Document.to_markdown`) instead of being stored.
+- **Generation:** summary, both scripts and both briefs answer with a JSON
+  object (prompts Revision 3, in code and in the `prompts/` exports). The
+  brief's sections carry `theme_number`, which is what binds each topic's
+  source links to that topic — attribution is structural, not string surgery.
+- **Fallback (never fail a run on format):** a model answering with prose or
+  partial JSON yields a prose document plus `FALLBACK_NOTE`; for the brief the
+  per-theme source blocks are still emitted, so a formatting failure costs the
+  reader structure but never a link.
+- **Removed the `Markdown` dependency** — no output is converted from markdown
+  any more; the HTML is hand-built (email_layout.py) and the markdown archive
+  is rendered from the document.
+- Delivery sinks (email, file), the pipeline and `store.insert_brief` were
+  rewired to documents in the same change; guard coverage is
+  `tests/test_compose.py` (21 tests), `tests/test_email_layout.py` (33) plus
+  the updated e2e assertions, which now prove per-topic attribution
+  end-to-end.
+

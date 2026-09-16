@@ -4,7 +4,7 @@ and file output. Plus an end-to-end email-delivery test against a fake SMTP
 server (unauthenticated path only — authenticated SMTP is T2).
 """
 
-# version: 0.3.0
+# version: 0.5.0
 
 import asyncio
 from email import message_from_string
@@ -61,8 +61,16 @@ def test_pipeline_end_to_end(isolated_config, fixture_server, store, tmp_path):
     ]
     assert all(p.parent.parent.name == "guard-fixture" for p in result["files"])
     theme_md = (result["files"][1]).read_text()
-    assert "## Summary" in theme_md and "## Script (EN)" in theme_md and "## Script (DE)" in theme_md
-    assert "Generated fixture content" in (result["files"][0]).read_text()
+    assert "# Fixture summary headline" in theme_md
+    assert "## Summary" in theme_md
+    assert "## Script (English)" in theme_md and "## Script (German)" in theme_md
+    brief_md = (result["files"][0]).read_text()
+    assert "# Fixture brief headline" in brief_md
+    assert "WHAT TO WATCH" not in brief_md  # headings keep their case in markdown
+    assert "## What to watch" in brief_md
+    # The archive carries each topic's links under that topic, like the email.
+    assert brief_md.count("**Sources**") == 2
+    assert "http://127.0.0.1" in brief_md
 
     # URL dedupe across runs: a second run scrapes nothing new.
     run_id_2 = _run_pipeline(store, settings, interest)
@@ -105,24 +113,30 @@ def test_email_delivery_end_to_end(isolated_config, fixture_server, smtp_server,
     assert sum("Theme:" in s for s in subjects) == 2, subjects
     bodies = [b for _, b, _ in parsed]
     htmls = [h for _, _, h in parsed]
-    assert any("## Summary" in b and "## Script (EN)" in b for b in bodies)
-    assert all("## Script (DE)" not in b for b in bodies)  # script_de disabled
+    assert any("SUMMARY" in b and "SCRIPT (ENGLISH)" in b for b in bodies)
+    assert all("SCRIPT (GERMAN)" not in b for b in bodies)  # script_de disabled
     assert all("e2e-key" not in b for b in bodies)  # no secret leakage
-    # HTML part: same content, properly rendered (headings, linked sources).
-    assert all("<html>" in h and "<style>" in h for h in htmls)
-    assert any("<h2>Summary</h2>" in h and "<h2>Script (EN)</h2>" in h for h in htmls), htmls[0]
+    # HTML part: the designed layout, not a text conversion.
+    assert all("<html" in h and "prefers-color-scheme" in h for h in htmls)
+    assert any(">Summary</h2>" in h and ">Script (English)</h2>" in h for h in htmls), htmls[0]
+    assert all('role="presentation"' in h for h in htmls), htmls[0]
     assert all('href="http://127.0.0.1' in h for h in htmls), htmls[0]
 
-    # Source-article links: every theme email carries its theme's sources;
-    # the brief email carries the deduplicated union of all sources.
+    # A theme report carries its own theme's sources…
     theme_parsed = [(s, b, h) for (s, b, h) in parsed if "Theme:" in s]
     assert len(theme_parsed) == 2
     for body, html in [(b, h) for _, b, h in theme_parsed]:
-        assert "Sources (Renewable Energy Surge):" in body or \
-               "Sources (Grid Storage Policy):" in body, body
-        assert "http://127.0.0.1" in body, body
+        assert "Sources:" in body and "http://127.0.0.1" in body, body
         assert 'href="http://127.0.0.1' in html, html
-    brief = next((s, b, h) for (s, b, h) in parsed if "Daily Brief" in s)
-    assert "Sources (guard-fixture):" in brief[1]
-    # Union of sources: article a1 appears in both themes but only once in the brief.
-    assert brief[1].count("http://127.0.0.1") == 2
+
+    # …and the brief attributes each topic's links to that topic: topic one's
+    # articles sit under topic one, topic two's under topic two. Article a1
+    # belongs to both themes, so it appears under both — that is attribution,
+    # not a duplicated pool list.
+    brief_body = next(b for s, b, _ in parsed if "Daily Brief" in s)
+    assert "WHAT TO WATCH" in brief_body
+    first = brief_body.index("FIXTURE TOPIC 1")
+    second = brief_body.index("FIXTURE TOPIC 2")
+    assert first < second
+    assert "/a1" in brief_body[first:second] and "/a2" in brief_body[first:second]
+    assert "/a1" in brief_body[second:] and "/a2" not in brief_body[second:]

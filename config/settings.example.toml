@@ -66,8 +66,9 @@ interval_hours = 24          # 1..168
 max_themes = 5
 
 # Deliverable toggles and word targets.
+# How long the per-theme summary (the "article" for a topic) should be.
 enable_summary = true
-target_summary_words = 750
+target_summary_words = 600
 enable_script = false        # English YouTube script
 target_script_words = 1250
 enable_script_de = false     # German YouTube script

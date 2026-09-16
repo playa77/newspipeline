@@ -7,7 +7,7 @@ recipient override, paused state made discoverable, trigger-now, and
 first-class rename (D11) with a trivial confirm — history is preserved.
 """
 
-# version: 0.3.0
+# version: 0.3.1
 
 from __future__ import annotations
 
@@ -252,7 +252,7 @@ class InterestsTab(QWidget):
         self.interval_hours.setValue(int(interest.get("interval_hours", 24)))
         for flag, (box, words) in self.deliverables.items():
             box.setChecked(bool(interest.get(flag)))
-            words.setValue(int(interest.get(_words_for(flag), 750)))
+            words.setValue(int(interest.get(_words_for(flag), 600)))
         index = self.length_mode.findData(interest.get("input_data_length_mode"))
         self.length_mode.setCurrentIndex(max(0, index))
         self.input_word_count.setValue(int(interest.get("input_word_count", 256)))

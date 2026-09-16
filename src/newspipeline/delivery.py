@@ -64,6 +64,8 @@ def deliver_run(
             brief=brief,
             themes=themes,
             deliverables_by_theme=deliverables_by_theme,
+            store=store,
+            run_id=run_id,
         )
 
     if "email" in modes:

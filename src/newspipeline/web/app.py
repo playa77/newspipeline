@@ -26,7 +26,7 @@ body (G1): SMTP host/port/user live in settings.toml, the passwords stay
 in .env on the VPS and are managed over SSH, not HTTP.
 """
 
-# version: 0.3.0
+# version: 0.3.1
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ _INTEREST_DEFAULTS: dict[str, Any] = {
     "enable_script": False,
     "enable_script_de": False,
     "enable_brief": True,
-    "target_summary_words": 750,
+    "target_summary_words": 600,
     "target_script_words": 1250,
     "target_script_de_words": 1250,
     "target_brief_words": 600,

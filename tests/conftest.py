@@ -9,11 +9,12 @@
   unauthenticated path only; authenticated SMTP is T2, untestable locally).
 """
 
-# version: 0.2.1
+# version: 0.3.0
 
 from __future__ import annotations
 
 import json
+import re
 import socketserver
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -88,11 +89,44 @@ class _FixtureHandler(BaseHTTPRequestHandler):
             "headers": dict(self.headers),
             "body": body,
         })
-        # Analysis prompts ask to identify "major themes" and return an
-        # "article_indices" array; everything else (summary, scripts, brief)
-        # gets plain generated text.
-        if "article_indices" in body["messages"][-1]["content"]:
+        # Each stage answers with the JSON object its prompt specifies; the
+        # mock keys on the schema named in the prompt so every stage gets a
+        # shape-valid answer. Anything unrecognized gets plain text, which
+        # exercises compose.py's prose fallback.
+        user_content = body["messages"][-1]["content"]
+        if '"article_indices"' in user_content:
             content = THEMES_JSON
+        elif '"theme_number"' in user_content:
+            numbers = re.findall(r"^## (\d+)\.", user_content, re.M)
+            content = json.dumps({
+                "headline": "Fixture brief headline",
+                "deck": "Fixture brief deck sentence.",
+                "sections": [
+                    {
+                        "theme_number": int(n),
+                        "heading": f"Fixture topic {n}",
+                        "paragraphs": [f"Synthesized fixture text for topic {n}."],
+                    }
+                    for n in numbers
+                ],
+                "what_to_watch": ["Fixture open question"],
+            })
+        elif '"headline"' in user_content and '"paragraphs"' in user_content:
+            content = json.dumps({
+                "headline": "Fixture summary headline",
+                "deck": "Fixture summary deck sentence.",
+                "paragraphs": [
+                    "Fixture paragraph one about the development.",
+                    "Fixture paragraph two with the context.",
+                ],
+            })
+        elif '"sections"' in user_content and '"heading"' in user_content:
+            content = json.dumps({
+                "sections": [
+                    {"heading": "Cold open", "paragraphs": ["Fixture cold open text."]},
+                    {"heading": "Intro", "paragraphs": ["Fixture intro text."]},
+                ]
+            })
         else:
             content = f"Generated fixture content for model {body.get('model')}."
         payload = json.dumps({

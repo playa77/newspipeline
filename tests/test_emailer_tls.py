@@ -13,6 +13,7 @@ path.
 import ssl
 
 from newspipeline import emailer
+from newspipeline.document import Document, Paragraph, Section
 
 
 class _RecordingSMTP:
@@ -50,14 +51,17 @@ def _send(monkeypatch, smtp_user: str) -> None:
     monkeypatch.setattr(emailer.smtplib, "SMTP", _RecordingSMTP)
     _RecordingSMTP.instances.clear()
     emailer.send_email(
+        document=Document(
+            headline="test",
+            subject="test",
+            sections=(Section(blocks=(Paragraph("body"),)),),
+        ),
         smtp_host="relay.example.org",
         smtp_port=587,
         smtp_user=smtp_user,
         smtp_password="secret-password",
         sender="pipe@example.org",
         recipient="user@example.org",
-        subject="test",
-        body="body",
     )
 
 

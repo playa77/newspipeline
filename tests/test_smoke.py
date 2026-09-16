@@ -3,7 +3,7 @@
 Guard tests for G1–G9 live in their dedicated modules (see DECISIONS.md).
 """
 
-# version: 0.3.0
+# version: 0.4.0
 
 import newspipeline
 from newspipeline import cli, config, emailer, fileout, llm, pipeline, scheduler, store
@@ -11,7 +11,7 @@ from newspipeline.web.app import create_app
 
 
 def test_version():
-    assert newspipeline.__version__ == "0.3.0"
+    assert newspipeline.__version__ == "0.5.0"
 
 
 def test_all_modules_importable():

@@ -3,6 +3,77 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.5.0 — 2026-09-16 (feature, in progress)
+
+### Added
+
+- **HTML-first report layout (not yet wired into delivery).** The email HTML
+  is now a designed artifact rather than a by-product of converting markdown:
+  `document.py` defines the structure every output is rendered from
+  (`Document` / `Section` / `Paragraph` / `Bullets` / `Source`), and
+  `email_layout.py` renders it three ways — the HTML part (table-based layout,
+  every style inline, hidden preheader, dark-mode-aware palette, per-topic
+  source lists), the plain-text part (built from the same document, ≤78-char
+  lines, text/plain prior to text/html), and the markdown archive
+  (`Document.to_markdown`, a sibling rendering).
+- **`tests/test_email_layout.py`** — 33 guard assertions on the HTML itself:
+  single `h1`, presentation tables with width/cellpadding/cellspacing/border,
+  600 px fluid container, banned CSS constructs (`display:flex|grid`,
+  `position`, `float`, `background-image`, `url(`, `@font-face`), no
+  div-based layout, spacing from `<td>` padding rather than margins, no styled
+  `<hr>`, dark-mode block in `<head>` only, preheader as the first `<body>`
+  child ≤90 chars, palette-only colors with WCAG-AA contrast re-checked,
+  links carrying an inline color and descriptive text, payload under 80 KB,
+  text-part line lengths, and per-topic (never pooled) source attribution.
+- **`tests/preview_email.py`** — dev aid: writes the sample theme report and
+  multi-topic brief to HTML + text files for eyeballing the design.
+- Skill `html-email-reports` (user-local) with a client-support reference
+  (caniemail.com data, RFC 5322/2046, W3C contrast) and a known-good HTML
+  skeleton.
+- **Delivery, pipeline and archive now run on documents.** `emailer.send_email`
+  takes a `Document` and renders both MIME parts from it (`Document.subject`
+  carries the subject; nothing is added at transport time); the brief email is
+  a pure render of the stored brief document, and a theme email is assembled
+  by `compose.theme_document` from that theme's stored deliverables. The
+  failure alert is a document too. `fileout` writes the markdown archive from
+  the same documents (with the same per-topic source lists), and `pipeline`
+  stores every generate/brief answer as document JSON.
+- **Prompts Revision 3 (structured answers):** summary, both scripts and both
+  briefs now answer with a JSON object — headline, deck, paragraphs; sections
+  with headings; and for the brief a `theme_number` per section, which is what
+  binds a topic's source links to that topic. `prompts/*.txt` exports
+  regenerated and verified byte-identical to `src/newspipeline/prompts.py`.
+- **`store.insert_brief` takes an explicit `word_count`**, computed from the
+  document (`Document.word_count`) rather than from the stored JSON.
+- **`Document.to_dict()` carries a `format` marker** (`DOCUMENT_FORMAT`), so a
+  later format change is detectable rather than silent.
+- Removed the `Markdown` dependency: nothing converts markdown to HTML any
+  more.
+
+### Removed
+
+- An intermediate design that bound per-topic sources by rewriting markdown
+  (`SOURCES: n` markers substituted into the brief text) was built earlier
+  today and **dropped on the operator's instruction**: HTML may not be derived
+  from markdown. Its module, tests and prompt changes are not in this tree.
+
+## 0.4.4 — 2026-09-16 (change)
+
+### Changed
+
+- **Per-topic summary target lowered 750 → 600 words** (`target_summary_words`).
+  The default now reads 600 in every place it was hardcoded:
+  `pipeline.py::_generate` (the fallback when an interest omits the key), the
+  API's interest-creation defaults (`web/app.py::_INTEREST_DEFAULTS`),
+  `config/settings.example.toml`, and the desktop client's word-spin default
+  (`widgets/interests_tab.py`). Rationale (operator): the generated articles per
+  topic were too long at ~750. No prompt change was needed — `SUMMARY_USER`
+  already interpolates `{target_words}` with a ±10% tolerance.
+  **Scope caveat:** `target_summary_words` is persisted explicitly per interest
+  in `settings.toml`, so existing interests keep their own value; only newly
+  created interests inherit 600. Live interests need an explicit edit.
+  `tests/test_api.py` now asserts the 600 creation default.
+
 ## 0.4.3 — 2026-09-05 (docs)
 
 ### Changed
