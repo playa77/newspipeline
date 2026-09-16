@@ -8,9 +8,10 @@ client** GUI over an SSH tunnel.
 
 Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.3.0** — fully implemented; guard-test suite green
-> (`pytest tests/`). See [WORKPACKAGES.md](WORKPACKAGES.md) for the plan
-> and per-package state.
+> Status: **0.4.1** — fully implemented; guard-test suite green
+> (`pytest tests/`). Decisions and invariants: [DECISIONS.md](DECISIONS.md);
+> changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
+> [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Architecture
 
@@ -36,8 +37,10 @@ browser-originated requests on the machines themselves.
 - **Built-in scheduler**: per-interest start time + interval, catch-up of
   missed runs on startup, startup sweep of runs interrupted by a crash,
   pause by disabling all deliverables
-- **Delivery**: email via SMTP (Gmail relay documented below) and/or local
-  markdown files (a server-side archive)
+- **Delivery**: email via SMTP (Gmail relay documented below; sent as
+  multipart/alternative — plain markdown plus HTML rendered by the
+  `markdown` package, so Gmail shows headings, lists, and clickable source
+  links) and/or local markdown files (a server-side archive)
 - **Any OpenAI-compatible LLM endpoint** (default: OpenRouter), per-stage
   model overrides, optional reasoning effort
 - Secrets in `.env` on the server only — never in config files, never in
@@ -152,7 +155,10 @@ are repointed atomically-first; see DECISIONS.md D11).
 
 ## VPS deployment
 
-Suggested layout:
+The project always runs as a **dedicated, unprivileged system user**
+`newspipeline` — never under another user's account. Full step-by-step
+procedure (user creation, git push path, venv, state, systemd): see
+[DEPLOYMENT.md](DEPLOYMENT.md). The layout in brief:
 
 ```bash
 sudo useradd -r -m -d /var/lib/newspipeline -s /usr/sbin/nologin newspipeline
@@ -252,7 +258,8 @@ therefore mocked in tests but must be verified manually once:
       is refused (loopback bind only).
 
 Project decisions and invariants: [DECISIONS.md](DECISIONS.md).
-Changes: [CHANGELOG.md](CHANGELOG.md).
+Deployment: [DEPLOYMENT.md](DEPLOYMENT.md). Changes:
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -4,7 +4,7 @@ and file output. Plus an end-to-end email-delivery test against a fake SMTP
 server (unauthenticated path only — authenticated SMTP is T2).
 """
 
-# version: 0.2.0
+# version: 0.3.0
 
 import asyncio
 from email import message_from_string
@@ -92,26 +92,37 @@ def test_email_delivery_end_to_end(isolated_config, fixture_server, smtp_server,
     def decoded(raw):
         msg = message_from_string(raw)
         subject = str(make_header(decode_header(msg["Subject"])))
-        return subject, msg.get_payload(decode=True).decode()
+        # Emails are multipart/alternative: plain first, HTML last.
+        assert msg.is_multipart() and msg.get_content_type() == "multipart/alternative"
+        parts = list(msg.walk())
+        plain = next(p for p in parts if p.get_content_type() == "text/plain")
+        html = next(p for p in parts if p.get_content_type() == "text/html")
+        return subject, plain.get_payload(decode=True).decode(), html.get_payload(decode=True).decode()
 
     parsed = [decoded(e["data"]) for e in emails]
-    subjects = [s for s, _ in parsed]
+    subjects = [s for s, _, _ in parsed]
     assert any("Daily Brief" in s for s in subjects), subjects
     assert sum("Theme:" in s for s in subjects) == 2, subjects
-    bodies = [b for _, b in parsed]
-    assert any("=== SUMMARY ===" in b and "=== SCRIPT (EN) ===" in b for b in bodies)
-    assert all("=== SCRIPT (DE) ===" not in b for b in bodies)  # script_de disabled
+    bodies = [b for _, b, _ in parsed]
+    htmls = [h for _, _, h in parsed]
+    assert any("## Summary" in b and "## Script (EN)" in b for b in bodies)
+    assert all("## Script (DE)" not in b for b in bodies)  # script_de disabled
     assert all("e2e-key" not in b for b in bodies)  # no secret leakage
+    # HTML part: same content, properly rendered (headings, linked sources).
+    assert all("<html>" in h and "<style>" in h for h in htmls)
+    assert any("<h2>Summary</h2>" in h and "<h2>Script (EN)</h2>" in h for h in htmls), htmls[0]
+    assert all('href="http://127.0.0.1' in h for h in htmls), htmls[0]
 
     # Source-article links: every theme email carries its theme's sources;
     # the brief email carries the deduplicated union of all sources.
-    theme_bodies = [b for (s, b), _ in zip(parsed, parsed) if "Theme:" in s]
-    assert len(theme_bodies) == 2
-    for body in theme_bodies:
+    theme_parsed = [(s, b, h) for (s, b, h) in parsed if "Theme:" in s]
+    assert len(theme_parsed) == 2
+    for body, html in [(b, h) for _, b, h in theme_parsed]:
         assert "Sources (Renewable Energy Surge):" in body or \
                "Sources (Grid Storage Policy):" in body, body
         assert "http://127.0.0.1" in body, body
-    brief_body = next(b for (s, b) in parsed if "Daily Brief" in s)
-    assert "Sources (guard-fixture):" in brief_body
+        assert 'href="http://127.0.0.1' in html, html
+    brief = next((s, b, h) for (s, b, h) in parsed if "Daily Brief" in s)
+    assert "Sources (guard-fixture):" in brief[1]
     # Union of sources: article a1 appears in both themes but only once in the brief.
-    assert brief_body.count("http://127.0.0.1") == 2
+    assert brief[1].count("http://127.0.0.1") == 2

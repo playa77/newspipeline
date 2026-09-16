@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "newspipeline"
-version = "0.3.0"
+version = "0.4.2"
 description = "Headless news pipeline server: RSS scraping, LLM theme analysis, content generation, email/file delivery; JSON configuration API + scheduler"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,6 +15,7 @@ dependencies = [
     "feedparser~=6.0",
     "trafilatura~=2.0",
     "tomli-w~=1.2",
+    "Markdown~=3.7",
 ]
 
 [project.optional-dependencies]

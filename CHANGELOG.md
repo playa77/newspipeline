@@ -3,6 +3,52 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.4.3 — 2026-09-05 (docs)
+
+### Changed
+
+- **DEPLOYMENT.md aligned with the low-friction dev workflow:** the
+  `newspipeline` user is created with a real `/bin/bash` shell and full
+  interactive SSH/SFTP access — no `nologin`, no key-only SSH, no `sudo -u`
+  indirection during development. All hardening candidates moved to a new
+  explicit "Later: hardening" section to apply after dev stabilizes. The
+  app's own security model (loopback API + tunnel, secrets in `.env`) is
+  unchanged.
+
+### Changed
+
+- **DEPLOYMENT.md rewritten as a fresh-VPS procedure:** every future
+  deployment creates and uses a dedicated `newspipeline` system user
+  (`/var/lib/newspipeline` home, `nologin`, owns `/opt/newspipeline` and
+  `/srv/git/newspipeline.git`); no other user's account is
+  used for anything newspipeline-related. Admin commands go through
+  `sudo -u newspipeline`; the old "as another user" day-to-day commands are
+  replaced. Password SSH is provisioning-only; key-only afterwards.
+- **`WORKPACKAGES.md` deleted** (stale); references updated in
+  `README.md` and `AGENTS.md`.
+
+## 0.4.1 — 2026-09-05 (feature)
+
+### Changed
+
+- **Prompts imported back from `prompts/`:** the six user-edited prompt
+  files are now the source of truth; they were imported verbatim into the
+  new `src/newspipeline/prompts.py` (one `*_SYSTEM`/`*_USER` template pair
+  per prompt) and all six call sites in `pipeline.py` (`_analyze`,
+  `_generate` ×3, `_brief` ×2) now use them via `str.format()` — no
+  hardcoded prompt strings remain in the pipeline. The fixture LLM mock in
+  `tests/conftest.py` keys on `article_indices` instead of the old
+  "major themes" wording.
+- **HTML email bodies:** result and failure-alert emails are now
+  `multipart/alternative` with a plain-text part (the markdown source) and
+  an HTML part rendered by the `markdown` package (new dependency,
+  `Markdown~=3.7`) with a small email-safe stylesheet — Gmail now renders
+  headings, lists, emphasis, and clickable source links. Local file output
+  stays markdown. Source links in emails are markdown links
+  (`[Title](url)`) and render as `<a href>` in the HTML part. New e2e
+  assertions cover the multipart structure, HTML rendering, and linked
+  sources.
+
 ## 0.4.0 — 2026-09-05 (feature)
 
 ### Added
@@ -74,7 +120,7 @@ happens. Format: version heading, date, grouped bullet points.
 
 ### Added
 
-- **Production deployment (R3):** deployed the server to the shared brainy
+- **Production deployment (R3):** deployed the server to the shared
   VPS (37.60.240.152) as a native systemd service using
   `deploy/newspipeline.service` — no Docker, state under
   `/var/lib/newspipeline`, API loopback-only on 8421. Deployment record in

@@ -70,4 +70,6 @@ App entry point (`newspipeline.cli`):
 - Source files carry a trailing `# version:` comment; bump it when editing a file.
 - Process docs are part of the workflow: append decisions to `DECISIONS.md`
   as they are made (R1/R2/R3 tagged), append changes to `CHANGELOG.md`,
-  keep `WORKPACKAGES.md` statuses current, update `README.md` when behavior changes.
+  update `README.md` when behavior changes, and keep `DEPLOYMENT.md` current
+  (deployments always use the dedicated `newspipeline` user, never another
+  user's account).

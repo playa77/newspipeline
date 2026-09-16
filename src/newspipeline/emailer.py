@@ -1,14 +1,17 @@
 """SMTP delivery for pipeline results and failure alerts.
 
-Plain-text emails, STARTTLS+LOGIN when a user is configured, plain
-connection otherwise (e.g. a local relay). Two retries with 10s backoff on
-transient SMTP errors.
+Emails are sent as HTML: the pipeline produces markdown deliverables, which
+are converted with the `markdown` package (with the `fenced_code` and
+`sane_lists` extensions) so Gmail renders them properly. Local file output
+stays markdown (see fileout.py). STARTTLS+LOGIN when a user is configured,
+plain connection otherwise (e.g. a local relay). Two retries with 10s
+backoff on transient SMTP errors.
 
 The SMTP password comes from .env (NEWS_SMTP_PASSWORD), never from
 settings.toml, and is never logged (invariant G1).
 """
 
-# version: 0.3.0
+# version: 0.4.0
 
 from __future__ import annotations
 
@@ -18,8 +21,11 @@ import smtplib
 import ssl
 import time
 from datetime import UTC, datetime
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
+
+import markdown
 
 from newspipeline.config import get_smtp_password
 
@@ -27,6 +33,37 @@ logger = logging.getLogger(__name__)
 
 _SMTP_MAX_RETRIES = 2
 _SMTP_RETRY_BACKOFF_SECONDS = 10
+
+_MD_EXTENSIONS = ["fenced_code", "sane_lists"]
+
+# Minimal, email-client-friendly stylesheet: email CSS support is spotty,
+# so only basic block-level styling that Gmail's web UI honors.
+_CSS = """\
+body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+       font-size: 15px; line-height: 1.55; color: #1a1a1a; margin: 1em; }
+h1 { font-size: 1.35em; margin: 1.1em 0 0.4em; }
+h2 { font-size: 1.15em; margin: 1em 0 0.35em; border-bottom: 1px solid #ddd; padding-bottom: 0.15em; }
+h3 { font-size: 1.02em; margin: 0.9em 0 0.3em; }
+p { margin: 0.55em 0; }
+ul, ol { margin: 0.55em 0; padding-left: 1.5em; }
+li { margin: 0.2em 0; }
+a { color: #0b57d0; }
+hr { border: none; border-top: 1px solid #ddd; margin: 1.4em 0; }
+code { background: #f2f2f2; padding: 0.1em 0.3em; border-radius: 3px; }
+pre { background: #f2f2f2; padding: 0.7em; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 3px solid #ccc; margin: 0.7em 0; padding: 0.1em 0.9em; color: #444; }
+"""
+
+
+def markdown_to_html(text: str) -> str:
+    """Convert markdown text to a standalone HTML fragment for email bodies."""
+    body = markdown.markdown(text, extensions=_MD_EXTENSIONS)
+    return (
+        "<html><head><meta charset='utf-8'>"
+        f"<style>{_CSS}</style></head>"
+        f"<body>{body}</body></html>"
+    )
 
 
 def build_source_links(
@@ -50,12 +87,13 @@ def build_source_links(
 
 
 def _format_links_section(name: str, links: list[dict[str, str]]) -> str:
-    """Render a 'Sources' block: '1. Title — <url>' per line."""
+    """Render a 'Sources' block as markdown: '1. [Title](url)' per line."""
     if not links:
         return ""
     lines = [f"Sources ({name}):"]
     for i, link in enumerate(links, 1):
-        lines.append(f"{i}. {link['title']} — {link['url']}")
+        title = link["title"].replace("[", "(").replace("]", ")")
+        lines.append(f"{i}. [{title}]({link['url']})")
     return "\n".join(lines)
 
 
@@ -74,11 +112,13 @@ def send_email(
     subject: str,
     body: str,
 ) -> None:
-    """Send a plain-text email via SMTP."""
-    msg = MIMEText(body, "plain", "utf-8")
+    """Send an HTML email via SMTP; `body` is markdown, rendered to HTML."""
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = recipient
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(markdown_to_html(body), "html", "utf-8"))
 
     last_exc: Exception | None = None
     wants_auth = bool(smtp_user)
@@ -188,11 +228,11 @@ def send_pipeline_results(
 
         parts: list[str] = []
         if summary:
-            parts.append(f"=== SUMMARY ===\n{summary}")
+            parts.append(f"## Summary\n\n{summary}")
         if script:
-            parts.append(f"=== SCRIPT (EN) ===\n{script}")
+            parts.append(f"## Script (EN)\n\n{script}")
         if script_de:
-            parts.append(f"=== SCRIPT (DE) ===\n{script_de}")
+            parts.append(f"## Script (DE)\n\n{script_de}")
         if links_section:
             parts.append(links_section)
 

@@ -26,3 +26,6 @@ output/
 
 #misc
 prompts/
+
+# Operator access notes for the VPS install — local only, never committed
+VPS-ACCESS.md

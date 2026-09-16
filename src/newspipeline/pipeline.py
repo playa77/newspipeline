@@ -14,7 +14,7 @@ Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.3.0
+# version: 0.4.0
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ import httpx
 import trafilatura
 
 from newspipeline.llm import LLMClient
+from newspipeline import prompts as P
 from newspipeline.store import Store, utcnow_iso
 
 logger = logging.getLogger(__name__)
@@ -305,24 +306,21 @@ class Pipeline:
                 f"Title: {a['title']}\nSource: {a.get('url', '')}\nBody: {body}"
             )
 
+        system = P.ANALYZE_SYSTEM
         prompt = (
-            f"Analyze the following news articles. Identify {max_themes} major themes. "
-            "For each theme, provide:\n"
-            "1. A concise title (one line)\n"
-            "2. A two-sentence description\n"
-            "3. Which article numbers are relevant\n\n"
-            "Format as JSON array:\n"
-            '[{"title": "...", "description": "...", "article_indices": [1,3,5]}, ...]\n\n'
-            "Articles:\n\n"
+            P.ANALYZE_USER.format(
+                max_themes=max_themes,
+                numbered_articles="\n\n".join(
+                    f"[{i}] {text}" for i, text in enumerate(article_texts, 1)
+                ),
+            )
         )
-        for i, text in enumerate(article_texts, 1):
-            prompt += f"[{i}] {text}\n\n"
 
         response: str | None = None
         try:
             response = await llm.chat_completion(
                 messages=[
-                    {"role": "system", "content": "You are a news analyst. Respond only with valid JSON."},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
                 model=self._stage_model("analysis"),
@@ -368,14 +366,15 @@ class Pipeline:
                 if enable_summary:
                     target_words = interest.get("target_summary_words", 750)
                     prompt = (
-                        f"Write a {target_words}-word summary of this news theme:\n\n"
-                        f"Theme: {theme['title']}\n"
-                        f"Description: {theme['description']}\n\n"
-                        "Write a well-structured, journalistic summary with a headline."
+                        P.SUMMARY_USER.format(
+                            target_words=target_words,
+                            theme_title=theme['title'],
+                            theme_description=theme['description'],
+                        )
                     )
                     response = await llm.chat_completion(
                         messages=[
-                            {"role": "system", "content": "You are a professional journalist. Write clear, engaging summaries."},
+                            {"role": "system", "content": P.SUMMARY_SYSTEM},
                             {"role": "user", "content": prompt},
                         ],
                         model=model,
@@ -391,13 +390,15 @@ class Pipeline:
                 if enable_script:
                     target_script = interest.get("target_script_words", 1250)
                     script_prompt = (
-                        f"Write a {target_script}-word YouTube script about this news theme:\n\n"
-                        f"Theme: {theme['title']}\nContent: The theme is about {theme['description']}\n\n"
-                        "Format as a video script with intro, segments, and outro. Include speaker directions in [brackets]."
+                        P.SCRIPT_EN_USER.format(
+                            target_words=target_script,
+                            theme_title=theme['title'],
+                            theme_description=theme['description'],
+                        )
                     )
                     script = await llm.chat_completion(
                         messages=[
-                            {"role": "system", "content": "You are a video script writer. Write engaging YouTube scripts."},
+                            {"role": "system", "content": P.SCRIPT_EN_SYSTEM},
                             {"role": "user", "content": script_prompt},
                         ],
                         model=model,
@@ -413,14 +414,15 @@ class Pipeline:
                 if enable_script_de:
                     target_script_de = interest.get("target_script_de_words", 1250)
                     de_prompt = (
-                        f"Schreibe ein {target_script_de}-Wort YouTube-Skript auf Deutsch zu diesem Nachrichtenthema:\n\n"
-                        f"Thema: {theme['title']}\nInhalt: {theme['description']}\n\n"
-                        "Formatiere als Video-Skript mit Intro, Segmenten und Outro. "
-                        "Füge Sprecheranweisungen in [Klammern] ein. Schreibe professionell und ansprechend."
+                        P.SCRIPT_DE_USER.format(
+                            target_words=target_script_de,
+                            theme_title=theme['title'],
+                            theme_description=theme['description'],
+                        )
                     )
                     script_de = await llm.chat_completion(
                         messages=[
-                            {"role": "system", "content": "Du bist ein professioneller Drehbuchautor. Schreibe ansprechende YouTube-Skripte auf Deutsch."},
+                            {"role": "system", "content": P.SCRIPT_DE_SYSTEM},
                             {"role": "user", "content": de_prompt},
                         ],
                         model=model,
@@ -454,22 +456,17 @@ class Pipeline:
 
         try:
             if language == "de":
-                prompt = (
-                    "Fasse diese Nachrichtenthemen zu einer täglichen Kurznachricht zusammen:\n\n"
-                    f"{theme_summaries}\n\n"
-                    f"Schreibe einen zusammenhängenden {target_brief}-Wörter-Bericht, "
-                    "der diese Themen verbindet und Zusammenhänge sowie wichtige Erkenntnisse hervorhebt. "
-                    "Schreibe auf Deutsch. Verwende deutsche Überschriften."
+                prompt = P.BRIEF_DE_USER.format(
+                    target_words=target_brief,
+                    theme_summaries=theme_summaries,
                 )
-                system_content = "Du bist ein Redaktionsleiter. Schreibe prägnante, aufschlussreiche tägliche Nachrichten auf Deutsch."
+                system_content = P.BRIEF_DE_SYSTEM
             else:
-                prompt = (
-                    "Synthesize a daily news brief from these themes:\n\n"
-                    f"{theme_summaries}\n\n"
-                    f"Write a cohesive {target_brief}-word brief that ties these themes together, "
-                    "highlighting connections and key takeaways."
+                prompt = P.BRIEF_EN_USER.format(
+                    target_words=target_brief,
+                    theme_summaries=theme_summaries,
                 )
-                system_content = "You are an executive editor. Write concise, insightful daily briefs."
+                system_content = P.BRIEF_EN_SYSTEM
 
             response = await llm.chat_completion(
                 messages=[

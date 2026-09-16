@@ -9,7 +9,7 @@
   unauthenticated path only; authenticated SMTP is T2, untestable locally).
 """
 
-# version: 0.2.0
+# version: 0.2.1
 
 from __future__ import annotations
 
@@ -88,9 +88,10 @@ class _FixtureHandler(BaseHTTPRequestHandler):
             "headers": dict(self.headers),
             "body": body,
         })
-        # Analysis prompts ask to identify "major themes"; everything else
-        # (summary, scripts, brief) gets plain generated text.
-        if "major themes" in body["messages"][-1]["content"]:
+        # Analysis prompts ask to identify "major themes" and return an
+        # "article_indices" array; everything else (summary, scripts, brief)
+        # gets plain generated text.
+        if "article_indices" in body["messages"][-1]["content"]:
             content = THEMES_JSON
         else:
             content = f"Generated fixture content for model {body.get('model')}."
