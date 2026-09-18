@@ -6,20 +6,22 @@ event loop (Flask is sync — D2). Semantics:
 - one scheduler loop waking every 60 seconds
 - per-interest schedule: first run at start_time (HH:MM), then every
   interval_hours within the day
-- catch-up: on startup, run the most recently missed run per interest
+- catch-up: on startup, run the most recently missed run per interest — unless
+  a completed or in-flight run already covers that slot (a restart must not
+  repeat a run that happened; D16)
 - startup sweep: orphaned 'running' rows are marked failed (D10, serve only)
 - an interest is "paused" when summary, script and brief are all disabled
 - per-interest concurrency guard: never two runs of the same interest
 """
 
-# version: 0.3.0
+# version: 0.5.1
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -34,6 +36,9 @@ _SECONDS_PER_HOUR = 3600
 _CHECK_INTERVAL_SECONDS = 60
 _TICK_WINDOW_SECONDS = 65  # a run within this window fires on this tick
 _CATCH_UP_DELAY_SECONDS = 5
+# A run started within this much before a slot counts as that slot's run: the
+# tick window fires up to 65s early, and a run may also start a little late.
+_SLOT_TOLERANCE = timedelta(minutes=5)
 
 
 def _parse_hhmm(time_str: str) -> tuple[int, int]:
@@ -101,6 +106,17 @@ def is_paused(interest: dict[str, Any]) -> bool:
     return not any(
         interest.get(k) for k in ("enable_summary", "enable_script", "enable_brief")
     )
+
+
+def _parse_started_at(value: str | None) -> datetime | None:
+    """Parse a run row's ISO ``started_at`` into an aware datetime."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 class SchedulerThread:
@@ -275,11 +291,39 @@ class SchedulerThread:
             )
             if missed is None:
                 continue
+            name = interest.get("name", "?")
+            covered_by = self._covering_run(name, missed)
+            if covered_by is not None:
+                logger.info(
+                    "Catch-up skipped — interest %r already served the %s slot "
+                    "(run %s): a restart must not repeat a run that happened",
+                    name, missed.strftime("%Y-%m-%d %H:%M"), covered_by,
+                )
+                continue
             logger.info(
                 "Catch-up: interest %r missed run at %s — executing now",
-                interest.get("name"), missed.strftime("%Y-%m-%d %H:%M"),
+                name, missed.strftime("%Y-%m-%d %H:%M"),
             )
             await self._launch(settings, interest, reason="catch-up")
+
+    def _covering_run(self, interest_name: str, slot: datetime) -> int | None:
+        """Id of the run that already covers ``slot``, or None.
+
+        A run started within ``_SLOT_TOLERANCE`` before the slot counts as that
+        slot's run (the tick window can fire early). Failed runs deliberately do
+        NOT cover a slot: a run interrupted by a crash is swept to 'failed' at
+        serve startup and must still be retried here (D10). Only the most recent
+        20 runs of the interest are examined (``Store.list_runs``) — far more
+        than the single slot in question.
+        """
+        earliest = slot - _SLOT_TOLERANCE
+        for run in self._store.list_runs(interest_name):
+            started = _parse_started_at(run.get("started_at"))
+            if started is None or started < earliest:
+                continue
+            if run.get("status") in ("completed", "running"):
+                return int(run["id"])
+        return None
 
     async def _trigger_now(self, interest_name: str) -> str:
         settings = self._get_settings()

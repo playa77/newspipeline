@@ -37,6 +37,9 @@ Ledger mechanics (standing rules for every future session):
 
 ## Open issues
 
+Rows whose ID also appears under **Closed** below have left the open list; they
+are left in place here only as the ledger's own history.
+
 ### Class 1 — contract/correctness
 
 Checks run: last-touched audit of every tracked `.md` against the change range (produced OI-09);
@@ -52,6 +55,13 @@ re-audited this sweep (no reported drift).
   philosophy: low friction first" — interactive password SSH; "Access from the desktop": "The
   client does this itself"). Repair: one verified client connect against the VPS as deployed, or
   correct the README claim. Owner: **verify**
+
+- **OI-23** — **fixed in 0.5.1 (D16)** — catch-up re-ran every interest on every serve restart:
+  `find_most_recent_missed` reads only the schedule and `_run_catch_up` launched without consulting
+  the run history, so a deploy or crash-restart added a second full round per interest. Evidence
+  (live, 2026-09-18): two runs per interest per day on the 16th, 17th and 18th with
+  `interval_hours = 24`, and 24 `Catch-up:` journal lines in 72 hours.
+  Repair: `SchedulerThread._covering_run` + three guard tests. Owner: **agent** (closed — see Closed)
 
 ### Class 2 — never-verified behaviour
 
@@ -197,9 +207,23 @@ command to check it.
   0.3.0 → 0.5.0.
   Evidence: `head -1 deploy/newspipeline.service`.
 
-Still open and worth naming here: **OI-10** (no release tag) closes when the
-0.5.0 annotated tag is pushed — the release commit prepares it (D15);
-**OI-12** (deployed-revision check) and **OI-04** stay operator rows.
+- **OI-10** — no release tag existed for any shipped version, so nothing anchored
+  what the VPS checkout or a rollback corresponded to. Closed 2026-09-18: the
+  0.5.0 release carries the first annotated tag (D15, tag-per-release rule).
+  Evidence: `git tag -l` → `v0.5.0`; `git ls-remote --tags origin v0.5.0` → the
+  tag object plus its peeled `^{}` commit; release page
+  `https://github.com/playa77/newspipeline/releases/tag/v0.5.0`.
+- **OI-23** — catch-up no longer repeats a slot that already ran: `_covering_run` skips a slot
+  covered by a completed or in-flight run, while a failed/interrupted one is still retried (crash
+  recovery, D10, intact).
+  Evidence: `pytest tests/test_scheduler.py -k catch_up -v` → three named tests green; the
+  regression test fails against the pre-fix code (short-circuit `_covering_run` to `return None`
+  and re-run it).
+  Live re-check after deploying 0.5.1: restart the service and confirm the journal shows
+  `Catch-up skipped — interest … already served the … slot (run N)` instead of `Catch-up: …`.
+
+Still open and worth naming here: **OI-12** and **OI-04** (deployed-revision
+checks) are agent rows per the corrected standing constraints.
 
 ## Closing sequence (dependency order)
 

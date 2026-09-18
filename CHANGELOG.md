@@ -3,6 +3,26 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.5.1 — 2026-09-18 (fix)
+
+### Fixed
+
+- **Every serve restart re-ran every interest: catch-up never looked at the run
+  history.** `find_most_recent_missed` answers "which slot does the schedule say
+  was missed", and `_run_catch_up` launched it without asking whether that slot
+  had already run — so a deploy, a restart or a crash-restart added a second full
+  round for every interest. Live evidence before the fix: two runs per interest
+  per day on 2026-09-16/17/18 with `interval_hours = 24`, and 24 `Catch-up:`
+  launches in 72 hours of journal — double the LLM spend and double the delivered
+  mail, on a box whose operator had just asked for *less* mail.
+  Catch-up now skips a slot that a completed or in-flight run already covers
+  (`SchedulerThread._covering_run`, ±5-minute tolerance for the 65-second tick
+  window). Failed runs deliberately do **not** cover a slot, so the crash path is
+  unchanged: a run swept to `failed` at serve startup is still retried (D10).
+- Suite: **179 passed** (~60 s), up from 176 — three guard tests in
+  `tests/test_scheduler.py`; `test_catch_up_does_not_repeat_a_slot_that_already_ran`
+  was proved to fail against the pre-fix behaviour before being accepted (D16).
+
 ## 0.5.0 — 2026-09-18 (release)
 
 ### Added

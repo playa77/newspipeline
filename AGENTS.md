@@ -12,7 +12,7 @@ Python 3.12+, src layout. No linter/formatter/typechecker configured;
 ```bash
 source .venv/bin/activate
 pip install -e ".[dev]"        # server + dev deps (client: pip install ./client)
-pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 176 tests)
+pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 179 tests)
 pytest tests/test_rename_history.py -v   # single guard file
 ```
 

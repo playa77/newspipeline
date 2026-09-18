@@ -6,11 +6,11 @@ The reference outputs are frozen in reference_snapshots.py (captured from
 the retired reference implementation before its removal on 2026-08-08).
 """
 
-# version: 0.3.0
+# version: 0.5.1
 
 import asyncio
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -199,3 +199,78 @@ def test_launch_failed_run_dispatches_failure_alert(store, monkeypatch):
     assert len(alerts) == 1
     assert alerts[0]["stage_name"] == "analyze"
     assert alerts[0]["error_message"] == "boom"
+
+
+# ---- catch-up must not repeat a slot that already ran (D16) ------------------
+
+
+def _slot_start_time(now: datetime) -> str:
+    """A start_time whose today's slot lies ~6h in the past (not a full day)."""
+    return (now - timedelta(hours=6)).strftime("%H:%M")
+
+
+def _catch_up_round(store, monkeypatch, name: str, start_time: str) -> list[str]:
+    """Run one catch-up pass; return the interest names it decided to launch."""
+    launched: list[str] = []
+    monkeypatch.setattr(sched_mod, "_CATCH_UP_DELAY_SECONDS", 0)
+    scheduler = SchedulerThread(
+        store=store,
+        get_settings=lambda: {"interests": [{
+            "name": name, "start_time": start_time, "interval_hours": 24,
+            "enable_summary": True, "enable_brief": True, "feeds": [],
+        }]},
+        get_api_key=lambda: "k",
+    )
+
+    async def _record_launch(_settings, interest, *, reason):
+        launched.append(interest["name"])
+        return None
+
+    monkeypatch.setattr(scheduler, "_launch", _record_launch)
+    asyncio.run(scheduler._run_catch_up())
+    return launched
+
+
+def test_catch_up_does_not_repeat_a_slot_that_already_ran(store, monkeypatch):
+    """A restart must not re-run an interest whose slot already ran.
+
+    Live evidence for this guard: with interval_hours = 24 every interest had
+    two runs a day on 2026-09-16/17/18 and the journal showed 24 catch-up
+    launches in 72h — each restart added a second full round, doubling both
+    LLM spend and delivered mail.
+    """
+    now = datetime.now(TZ)
+    run_id = store.create_run("catch-up-covered")["id"]
+    store.update_run(run_id, status="completed")
+
+    launched = _catch_up_round(
+        store, monkeypatch, "catch-up-covered", _slot_start_time(now),
+    )
+
+    assert launched == []
+    assert store.get_run(run_id)["status"] == "completed"  # left untouched
+
+
+def test_catch_up_still_runs_a_genuinely_missed_slot(store, monkeypatch):
+    now = datetime.now(TZ)
+    launched = _catch_up_round(
+        store, monkeypatch, "catch-up-missed", _slot_start_time(now),
+    )
+    assert launched == ["catch-up-missed"]
+
+
+def test_catch_up_retries_a_slot_whose_run_was_interrupted(store, monkeypatch):
+    """Crash recovery stays intact: a swept run must not block its slot.
+
+    The run row exists and sits inside the slot's window, but it failed — only
+    a completed (or in-flight) run may suppress a catch-up, otherwise an
+    interrupted run would silently lose its slot.
+    """
+    now = datetime.now(TZ)
+    store.create_run("catch-up-interrupted")  # status 'running'
+    assert store.sweep_orphaned_runs() == 1  # what serve startup does (D10)
+
+    launched = _catch_up_round(
+        store, monkeypatch, "catch-up-interrupted", _slot_start_time(now),
+    )
+    assert launched == ["catch-up-interrupted"]

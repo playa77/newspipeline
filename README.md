@@ -8,8 +8,8 @@ client** GUI over an SSH tunnel.
 
 Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.5.0** — fully implemented; guard-test suite green
-> (`pytest tests/` — 176 tests, ~60 s). Decisions and invariants:
+> Status: **0.5.1** — fully implemented; guard-test suite green
+> (`pytest tests/` — 179 tests, ~60 s). Decisions and invariants:
 > [DECISIONS.md](DECISIONS.md);
 > changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
 > [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -109,8 +109,10 @@ rows: a concurrent `serve` process may legitimately own a running row.
   `running` rows are marked `failed / 'interrupted by restart'` at serve
   startup and logged — the interests become schedulable again. No manual
   sqlite3 surgery needed.
-- **Catch-up**: each interest whose most recent scheduled slot was missed
-  runs immediately after startup.
+- **Catch-up**: each interest whose most recent scheduled slot was missed runs
+  immediately after startup — unless a completed (or still in-flight) run
+  already covers that slot, so a restart never repeats a run that happened.
+  A slot whose run failed or was interrupted is retried.
 - **Paused interests** (all deliverables disabled) never run on a
   schedule; `run --interest NAME` can still force one manually.
 

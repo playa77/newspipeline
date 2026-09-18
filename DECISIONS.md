@@ -737,3 +737,33 @@ system."
   rows OI-04/OI-12 (the deployed-revision check is an agent row), and the local
   memory note that carried the false rule.
 
+## 2026-09-18 — D16: catch-up skips a slot that already ran (R2 — fix for a live defect)
+
+Found while deploying 0.5.0 to the live install: the restart fired catch-up for
+all five interests although that day's 04:00 runs had completed. Root cause:
+`find_most_recent_missed` (`scheduler.py`) answers only "which slot does the
+schedule say was missed" and `SchedulerThread._run_catch_up` launched it without
+consulting the run history, so **every** serve restart added a second full round
+per interest. Live evidence: two runs per interest per day on 2026-09-16, 17 and
+18 with `interval_hours = 24`, and 24 `Catch-up:` launches in 72 hours of journal
+— double the LLM spend and double the delivered mail.
+
+- **Ruling (R2, fixed in the same change):** catch-up skips a slot that a
+  **completed or in-flight** run already covers —
+  `SchedulerThread._covering_run(name, slot)` walks `Store.list_runs` (newest
+  first) and accepts a run whose `started_at` is within `_SLOT_TOLERANCE`
+  (5 minutes; the tick window can fire up to 65 s early) before the slot. The
+  skip is logged by name and run id, so a suppressed catch-up is visible in the
+  journal rather than silent.
+- **Deliberately unchanged:** a **failed** run does not cover a slot. A run
+  interrupted by a crash is swept to `failed` at serve startup (D10), and that
+  slot must still be retried — the crash-recovery path is what the sweep exists
+  for. The alternative (any run row covers its slot) was rejected for exactly
+  that reason; retrying a genuinely failing interest on every restart is the
+  pre-existing behaviour and was left alone.
+- **Scope:** scheduler semantics — G3's frozen next-run/missed references are
+  untouched (`tests/test_scheduler.py::test_find_most_recent_missed_*` still
+  assert the same values); the new behaviour is guarded by three tests, one of
+  which was proved to fail against the pre-fix code.
+- **Version:** 0.5.1 (a fix). The client distribution is unchanged.
+
