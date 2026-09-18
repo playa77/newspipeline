@@ -74,7 +74,11 @@ target_script_words = 1250
 enable_script_de = false     # German YouTube script
 target_script_de_words = 1250
 enable_brief = true          # daily brief synthesizing all themes
-target_brief_words = 600
+target_brief_words = 690
+# Per-theme result emails. Set false to receive the daily brief only; the
+# themes and their articles are still generated, stored and archived — they
+# are just not mailed individually.
+email_themes = true
 
 # Delivery modes: any of "file", "email".
 delivery = ["file"]

@@ -26,7 +26,7 @@ body (G1): SMTP host/port/user live in settings.toml, the passwords stay
 in .env on the VPS and are managed over SSH, not HTTP.
 """
 
-# version: 0.3.1
+# version: 0.5.0
 
 from __future__ import annotations
 
@@ -64,10 +64,13 @@ _INTEREST_DEFAULTS: dict[str, Any] = {
     "enable_script": False,
     "enable_script_de": False,
     "enable_brief": True,
+    # Per-theme result emails. False = the daily brief is this interest's
+    # only mail; its themes are still generated and archived either way.
+    "email_themes": True,
     "target_summary_words": 600,
     "target_script_words": 1250,
     "target_script_de_words": 1250,
-    "target_brief_words": 600,
+    "target_brief_words": 690,
     "delivery": ["file"],
     "email_recipient": "",
     "input_data_length_mode": "full_article",
@@ -185,7 +188,10 @@ def _validate_interest(
             if not low <= value <= high:
                 return None, f"{key!r} must be between {low} and {high}"
             interest[key] = value
-    for key in ("enable_summary", "enable_script", "enable_script_de", "enable_brief"):
+    for key in (
+        "enable_summary", "enable_script", "enable_script_de", "enable_brief",
+        "email_themes",
+    ):
         if key in data:
             if not isinstance(data[key], bool):
                 return None, f"{key!r} must be a boolean"

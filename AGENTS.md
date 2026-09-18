@@ -12,7 +12,7 @@ Python 3.12+, src layout. No linter/formatter/typechecker configured;
 ```bash
 source .venv/bin/activate
 pip install -e ".[dev]"        # server + dev deps (client: pip install ./client)
-pytest tests/ -v               # full suite — green and fully hermetic (~10s)
+pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 176 tests)
 pytest tests/test_rename_history.py -v   # single guard file
 ```
 
@@ -44,10 +44,11 @@ App entry point (`newspipeline.cli`):
   fake SMTP server (`smtp_server`), and `isolated_config` redirecting
   settings/.env paths to tmp. Real `config/settings.toml`, `.env`, and
   `data/news.db` are never touched — keep it that way; use these fixtures.
-- Guard tests G1–G9 are defined in DECISIONS.md and map 1:1 to named files
+- Guard tests G1–G10 are defined in DECISIONS.md and map 1:1 to named files
   (`test_secrets`, `test_store`, `test_scheduler`, `test_pipeline`,
   `test_e2e`, `test_scrape_loop`, `test_emailer_tls`,
-  `test_rename_history`, `test_startup_sweep`). Never weaken or skip them.
+  `test_rename_history`, `test_startup_sweep`, `test_llm_null_content`).
+  Never weaken or skip them.
 - The client has **no automated tests**; GUI behavior is verified offscreen
   at best. Visual/desktop-side checks are manual steps (README's
   human-verification checklist).

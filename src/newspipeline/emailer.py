@@ -125,8 +125,12 @@ def send_pipeline_results(
     """Send the daily brief and per-theme report emails for a run.
 
     One brief email when ``enable_brief``, then one email per theme
-    containing the enabled deliverables (summary / script / script_de).
-    Returns the number of emails sent.
+    containing the enabled deliverables (summary / script / script_de) —
+    unless the interest sets ``email_themes`` false, in which case the brief
+    is its only mail. That toggle suppresses the per-theme *emails* only:
+    the themes and their deliverables are still generated, stored and
+    archived, and the brief never depends on them. Returns the number of
+    emails sent.
     """
     emails_sent = 0
 
@@ -161,39 +165,42 @@ def send_pipeline_results(
             )
             emails_sent += 1
 
-    for position, theme in enumerate(themes, 1):
-        documents = _stored_documents(store, theme.get("id", 0))
-        summary = documents.get("summary") if interest.get("enable_summary") else None
-        script = documents.get("script") if interest.get("enable_script") else None
-        script_de = (
-            documents.get("script_de") if interest.get("enable_script_de") else None
-        )
-        if not (summary or script or script_de):
-            continue
+    if interest.get("email_themes", True):
+        for position, theme in enumerate(themes, 1):
+            documents = _stored_documents(store, theme.get("id", 0))
+            summary = (
+                documents.get("summary") if interest.get("enable_summary") else None
+            )
+            script = documents.get("script") if interest.get("enable_script") else None
+            script_de = (
+                documents.get("script_de") if interest.get("enable_script_de") else None
+            )
+            if not (summary or script or script_de):
+                continue
 
-        ids = theme.get("source_article_ids") or []
-        if isinstance(ids, str):
-            ids = json.loads(ids)
-        theme_name = theme.get("title", "Untitled")
-        document = compose.theme_document(
-            interest_name=name,
-            theme=theme,
-            position=position,
-            total=len(themes),
-            summary=summary,
-            script=script,
-            script_de=script_de,
-            sources=compose.resolve_sources(store, run_id, ids),
-        )
-        send_email(
-            **smtp_kwargs,
-            document=_framed(
-                document,
-                subject=f"{name} Theme: {theme_name} — {run_date}",
-                preheader=theme.get("description", ""),
-            ),
-        )
-        emails_sent += 1
+            ids = theme.get("source_article_ids") or []
+            if isinstance(ids, str):
+                ids = json.loads(ids)
+            theme_name = theme.get("title", "Untitled")
+            document = compose.theme_document(
+                interest_name=name,
+                theme=theme,
+                position=position,
+                total=len(themes),
+                summary=summary,
+                script=script,
+                script_de=script_de,
+                sources=compose.resolve_sources(store, run_id, ids),
+            )
+            send_email(
+                **smtp_kwargs,
+                document=_framed(
+                    document,
+                    subject=f"{name} Theme: {theme_name} — {run_date}",
+                    preheader=theme.get("description", ""),
+                ),
+            )
+            emails_sent += 1
 
     logger.info(
         "Pipeline result emails sent — %d email(s) for run %d, interest=%r",

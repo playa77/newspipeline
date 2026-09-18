@@ -12,9 +12,14 @@ Ledger mechanics (standing rules for every future session):
   - `.env` and `VPS-ACCESS.md` are off-limits — never read, echoed, or copied.
   - The security model (SSH local forward + loopback-only bind, no TLS, no tokens) is **settled
     policy** — never propose hardening it; Host/Origin gates are defense-in-depth only.
-  - **All remote/SSH access is operator-only.** The agent never opens an SSH connection
-    (including via `sshpass`) and never contacts a git remote over SSH; `git` commands run
-    against local refs only. The deployed-revision check is an operator row (OI-12).
+  - **Remote/SSH work is agent work.** Every `ssh`/`scp`/`git`-over-ssh invocation is run
+    by the agent itself, non-interactively over `sshpass` (`sshpass -e` with the password
+    from the documented access file; `GIT_SSH_COMMAND="sshpass -e ssh"` for the git remote;
+    `StrictHostKeyChecking=accept-new`; `-tt` only when a real tty is needed). What is
+    **forbidden** is any invocation that can fall back to an interactive prompt and pop a
+    login/password window on the operator's dev box — that is what an un-`sshpass`'d
+    `git ls-remote` did. The deployed-revision check (OI-12) is therefore an agent row, not
+    an operator row.
 
 ## Snapshot (every value from the command shown, run 2026-09-16)
 
@@ -59,10 +64,11 @@ re-audited this sweep (no reported drift).
   default (D12) governs only newly created interests. Evidence: DECISIONS.md D12 "Scope caveat
   for the live install" (verified via `GET /api/interests` on 2026-09-16).
   Repair: operator edits the five interests to 600 (client or settings.toml). Owner: **operator**
-- **OI-04** — The deployed revision on the VPS has not been verified against local head by the
-  agent, by operator ruling. Evidence: this snapshot's "Deployed revision" row; the local
-  tracking ref `remotes/vps/main` reads `1241a6e` but is not a live check.
-  Repair: operator runs OI-12's command and compares to `git rev-parse HEAD`. Owner: **operator**
+- **OI-04** — The deployed revision on the VPS has not been verified against local head
+  (agent row since 2026-09-18, when the false operator-only SSH rule was purged). Evidence:
+  this snapshot's "Deployed revision" row; the local tracking ref `remotes/vps/main` reads
+  `1241a6e` but is not a live check.
+  Repair: agent runs OI-12's command and compares to `git rev-parse HEAD`. Owner: **agent**
 
 ### Class 3 — docs/ledger drift
 
@@ -94,14 +100,15 @@ re-audited this sweep (no reported drift).
 - **OI-11** — Backup policy is "suggested, not yet configured": no nightly VPS backup of
   `/var/lib/newspipeline` exists. Evidence: `DEPLOYMENT.md:171` ("Backup (suggested, not yet
   configured)"). Repair: operator installs the cron entry per that section. Owner: **operator**
-- **OI-12** — Deployed-revision check is operator-run (never the agent, per standing constraints).
-  Evidence: this row; operator ruling recorded in the ledger header.
-  Repair: operator runs, then compares with local `git rev-parse HEAD`:
+- **OI-12** — Deployed-revision check: agent row (see the standing constraints above; the
+  earlier "operator-only" designation came from a rule that was wrong and has been purged).
+  Evidence: this row, plus the ledger entry of 2026-09-18 recording the correction.
+  Repair: the agent runs and compares against local `git rev-parse HEAD`:
   ```bash
   SSHPASS='<newspipeline ssh password>' sshpass -e ssh newspipeline@37.60.240.152 \
     'git --git-dir=/srv/git/newspipeline.git log --oneline -1'
   ```
-  (Password from the operator's private notes — never stored in this repo.) Owner: **operator**
+  (Password from the documented access file — never stored in this repo.) Owner: **agent**
 
 ### Class 5 — parked minors (copied out of the tracked review trail so they stay visible)
 
@@ -156,6 +163,43 @@ re-litigated)" block. Listed here for visibility; each stays closed unless re-op
   file. Evidence: the G10 entry in DECISIONS.md (2026-09-05). Repair: operator rules whether
   historical ledger mentions are exempt; then add a grep guard over *newly changed* tracked
   lines in CI (historical text untouched). Owner: **operator** (ruling) + **agent** (guard)
+
+## Closed
+
+Each row left the open list through the evidence line shown; re-run the
+command to check it.
+
+- **OI-03** — live interests' `target_summary_words`: closed by the
+  2026-09-16 live-config entry in DECISIONS.md ("Live-install config:
+  topic-article target 600 → 500 words"), which superseded this row's 600
+  target AND its "repair" scope: the five interests were edited through the
+  API and read back on the host.
+  Evidence: `grep -n "topic-article target 600 → 500" DECISIONS.md`;
+  re-check on the host with `curl -fsS http://127.0.0.1:8421/api/interests`.
+- **OI-05** — CHANGELOG self-contradiction: the "not yet wired into delivery"
+  parenthetical is gone; the 0.5.0 section now states the document-based
+  delivery once.
+  Evidence: `grep -c "not yet wired into delivery" CHANGELOG.md` → `0`.
+- **OI-06** — all six `prompts/*.txt` headers named
+  `src/newspipeline/pipeline.py`; they now name
+  `src/newspipeline/prompts.py` and the constant pair each file exports.
+  Evidence: `grep -l "pipeline.py" prompts/*.txt` → no output.
+- **OI-07** — AGENTS.md guard inventory now reads G1–G10 and lists
+  `test_llm_null_content`.
+  Evidence: `grep -n "G1–G10" AGENTS.md`.
+- **OI-08** — AGENTS.md's suite-time claim replaced with the measured value
+  ("~60 s, 176 tests").
+  Evidence: `grep -n "176 tests" AGENTS.md`.
+- **OI-16** — the client's non-editable install is now documented where an
+  installer looks (`client/README.md`), with the editable alternative.
+  Evidence: `grep -n "copied, not editable\|pip install -e ./client" client/README.md`.
+- **OI-19** — `deploy/newspipeline.service` header self-identity bumped
+  0.3.0 → 0.5.0.
+  Evidence: `head -1 deploy/newspipeline.service`.
+
+Still open and worth naming here: **OI-10** (no release tag) closes when the
+0.5.0 annotated tag is pushed — the release commit prepares it (D15);
+**OI-12** (deployed-revision check) and **OI-04** stay operator rows.
 
 ## Closing sequence (dependency order)
 

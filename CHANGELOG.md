@@ -3,11 +3,20 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
-## 0.5.0 — 2026-09-16 (feature, in progress)
+## 0.5.0 — 2026-09-18 (release)
 
 ### Added
 
-- **HTML-first report layout (not yet wired into delivery).** The email HTML
+- **`email_themes` — per-interest toggle for the per-theme result emails**
+  (default `true`). With it off the interest receives its daily brief only;
+  the themes and their deliverables are still generated, stored and written
+  to the file archive, because the brief is synthesized from each theme's
+  title and description and never from the per-theme articles
+  (`pipeline.py::_brief`). Added to the API's interest defaults and to the
+  boolean validation set, to `config/settings.example.toml`, and to the
+  client's Delivery box as "Also email each theme separately" (the GUI's
+  payload round-trips it).
+- **HTML-first report layout.** The email HTML
   is now a designed artifact rather than a by-product of converting markdown:
   `document.py` defines the structure every output is rendered from
   (`Document` / `Section` / `Paragraph` / `Bullets` / `Source`), and
@@ -49,6 +58,40 @@ happens. Format: version heading, date, grouped bullet points.
   later format change is detectable rather than silent.
 - Removed the `Markdown` dependency: nothing converts markdown to HTML any
   more.
+
+### Changed
+
+- **Daily brief target 600 → 690 words (+15%), product-wide.** The new value
+  is in `config/settings.example.toml`, the API's creation defaults
+  (`web/app.py::_INTEREST_DEFAULTS`), the pipeline fallback
+  (`pipeline.py::_brief`) and the client's word-target spin default; a new
+  guard (`tests/test_api.py::test_example_config_documents_every_creation_default`)
+  fails when the example config and the creation defaults drift apart — it was
+  proved to fail on a deliberate 690 → 600 edit before being accepted.
+- **The live install is switched to brief-only mail** (ops step of this
+  release — not part of the code tree, recorded here because the release
+  notes claim the behaviour): all five interests get `email_themes = false`
+  and `target_brief_words = 690` through `PUT /api/interests/<name>`, with a
+  read-back afterwards; the per-theme articles stay generated and archived
+  (D14). Pending the release's operator commands at the time of writing.
+- **Client distribution version 0.3.0 → 0.5.0**, so one release label covers
+  the server and the client that speaks to it; `client/README.md` loses its
+  stale `0.3.0` marker and documents the per-theme email toggle.
+- **Release-hygiene doc corrections:** README status line (claimed 0.4.1),
+  `deploy/newspipeline.service` header comment (claimed 0.3.0), AGENTS.md's
+  guard inventory (claimed G1–G9; G10 exists) and its "~10s" suite-time claim
+  (measured 60 s), and the stale parenthetical in this very section that
+  contradicted its own delivery bullet (OI-05).
+
+### Tests
+
+- `tests/test_e2e.py::test_email_themes_off_mails_only_the_brief` — with the
+  toggle off: one email (the brief), the themes and their summaries still in
+  the store, and the file archive still carrying brief + one file per theme.
+- `tests/test_api.py` — creation defaults (`target_brief_words == 690`,
+  `email_themes is True`), the `email_themes` boolean validation case, and the
+  PUT round-trip.
+- Suite: 176 passed (~60 s), up from 173.
 
 ### Removed
 

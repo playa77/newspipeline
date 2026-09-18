@@ -140,3 +140,45 @@ def test_email_delivery_end_to_end(isolated_config, fixture_server, smtp_server,
     assert first < second
     assert "/a1" in brief_body[first:second] and "/a2" in brief_body[first:second]
     assert "/a1" in brief_body[second:] and "/a2" not in brief_body[second:]
+
+
+def test_email_themes_off_mails_only_the_brief(
+    isolated_config, fixture_server, smtp_server, store, tmp_path,
+):
+    """`email_themes = false`: the brief is the interest's only mail.
+
+    The per-theme emails are suppressed, but nothing else changes — the
+    themes and their deliverables are still generated, stored and written to
+    the file archive (that is what makes this different from switching the
+    summary deliverable off entirely)."""
+    settings = make_settings(
+        fixture_server.server_port, tmp_path / "output",
+        smtp={"host": "127.0.0.1", "port": smtp_server.server_address[1]},
+        user={"email": "fallback@example.com"},
+    )
+    interest = make_interest(
+        fixture_server.server_port, ["file", "email"],
+        enable_script_de=False, email_themes=False,
+    )
+
+    run_id = _run_pipeline(store, settings, interest)
+    assert store.get_run(run_id)["status"] == "completed"
+
+    themes = store.get_themes_for_run(run_id)
+    assert len(themes) == 2
+    for theme in themes:
+        kinds = {d["deliverable_type"] for d in store.get_deliverables_for_theme(theme["id"])}
+        assert "summary" in kinds, kinds
+
+    result = deliver_run(run_id=run_id, store=store, settings=settings, interest=interest)
+    assert result["emails_sent"] == 1
+    assert len(smtp_server.captured_emails) == 1
+    msg = message_from_string(smtp_server.captured_emails[0]["data"])
+    assert "Daily Brief" in str(make_header(decode_header(msg["Subject"])))
+
+    files = sorted(p.name for p in result["files"])
+    assert files == [
+        "brief.md",
+        "theme-01-renewable-energy-surge.md",
+        "theme-02-grid-storage-policy.md",
+    ]

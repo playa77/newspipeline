@@ -3,11 +3,12 @@
 Covers feature parity with the old web UI (W6): interest create/edit/
 delete, feed add/remove (WP7 convention: no in-place feed edit), schedule,
 deliverable toggles with word targets, delivery modes with per-interest
-recipient override, paused state made discoverable, trigger-now, and
+recipient override and a per-theme email toggle, paused state made
+discoverable, trigger-now, and
 first-class rename (D11) with a trivial confirm — history is preserved.
 """
 
-# version: 0.3.1
+# version: 0.5.0
 
 from __future__ import annotations
 
@@ -46,6 +47,15 @@ _DELIVERABLES = (
     ("enable_brief", "target_brief_words", "Daily brief"),
 )
 _LENGTH_MODES = ("full_article", "headers_only", "word_count")
+
+# Server-side creation defaults (settings.example.toml), so an interest that
+# comes back without a word target spins the number the server would apply.
+_WORD_DEFAULTS = {
+    "enable_summary": 600,
+    "enable_script": 1250,
+    "enable_script_de": 1250,
+    "enable_brief": 690,
+}
 
 
 class FeedDialog(QDialog):
@@ -166,6 +176,12 @@ class InterestsTab(QWidget):
         self.email_recipient.setPlaceholderText("empty = global fallback recipient")
         delivery_layout.addRow(modes_row)
         delivery_layout.addRow("Recipient override", self.email_recipient)
+        self.email_themes = QCheckBox("Also email each theme separately")
+        self.email_themes.setToolTip(
+            "Off = the daily brief is this interest's only email. The themes "
+            "are still generated and kept in the archive and run history."
+        )
+        delivery_layout.addRow(self.email_themes)
         right.addWidget(delivery_box)
 
         feeds_box = QGroupBox("Feeds")
@@ -252,13 +268,14 @@ class InterestsTab(QWidget):
         self.interval_hours.setValue(int(interest.get("interval_hours", 24)))
         for flag, (box, words) in self.deliverables.items():
             box.setChecked(bool(interest.get(flag)))
-            words.setValue(int(interest.get(_words_for(flag), 600)))
+            words.setValue(int(interest.get(_words_for(flag), _WORD_DEFAULTS[flag])))
         index = self.length_mode.findData(interest.get("input_data_length_mode"))
         self.length_mode.setCurrentIndex(max(0, index))
         self.input_word_count.setValue(int(interest.get("input_word_count", 256)))
         modes = interest.get("delivery", [])
         self.file_mode.setChecked("file" in modes)
         self.email_mode.setChecked("email" in modes)
+        self.email_themes.setChecked(bool(interest.get("email_themes", True)))
         self.email_recipient.setText(interest.get("email_recipient", ""))
         self.feeds_list.clear()
         for feed in interest.get("feeds", []):
@@ -282,6 +299,7 @@ class InterestsTab(QWidget):
             words.setEnabled(enabled)
         self.file_mode.setEnabled(enabled)
         self.email_mode.setEnabled(enabled)
+        self.email_themes.setEnabled(enabled)
         self.feeds_list.setEnabled(enabled)
 
     # ---- actions ------------------------------------------------------------
@@ -296,6 +314,7 @@ class InterestsTab(QWidget):
                 if box.isChecked()
             ] or ["file"],
             "email_recipient": self.email_recipient.text().strip(),
+            "email_themes": self.email_themes.isChecked(),
             "input_data_length_mode": self.length_mode.currentData(),
             "input_word_count": self.input_word_count.value(),
         }

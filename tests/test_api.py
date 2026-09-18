@@ -6,12 +6,14 @@ fake scheduler recording trigger calls. Tests never touch the real
 config/settings.toml, .env, or data/news.db.
 """
 
-# version: 0.3.0
+# version: 0.5.0
+
+import tomllib
 
 import pytest
 
 from newspipeline import config
-from newspipeline.web.app import create_app
+from newspipeline.web.app import _INTEREST_DEFAULTS, create_app
 
 from conftest import make_settings
 
@@ -69,6 +71,8 @@ def test_interest_crud_round_trip(api):
     assert created["name"] == "Tech"
     assert created["paused"] is False
     assert created["target_summary_words"] == 600  # defaults applied
+    assert created["target_brief_words"] == 690    # 600 + 15% (D13)
+    assert created["email_themes"] is True         # per-theme emails on by default
 
     listed = api.get("/api/interests").get_json()["interests"]
     assert [i["name"] for i in listed] == ["Tech"]
@@ -81,6 +85,7 @@ def test_interest_crud_round_trip(api):
         "interval_hours": 4,
         "delivery": ["file"],
         "enable_brief": False,
+        "email_themes": False,
         "feeds": [],  # explicit empty is fine; feeds are managed via routes
     })
     assert resp.status_code == 200
@@ -88,6 +93,7 @@ def test_interest_crud_round_trip(api):
     assert updated["interval_hours"] == 4
     assert updated["delivery"] == ["file"]
     assert updated["enable_brief"] is False
+    assert updated["email_themes"] is False
     # Untouched fields keep their stored values.
     assert updated["start_time"] == "06:30"
 
@@ -110,6 +116,21 @@ def test_created_interest_is_persisted_to_toml(api):
     assert stored["input_data_length_mode"] == "headers_only"
     assert stored["delivery"] == ["file", "email"]
     assert stored["feeds"] == []
+
+
+def test_example_config_documents_every_creation_default():
+    """`config/settings.example.toml` is the human reference for the values the
+    API applies on creation: every default key must be documented there with
+    the same value. Each word-target change (0.4.4's 750→600, 0.5.0's 600→690)
+    had to be repeated in this many places by hand; this is the check."""
+    with config.SETTINGS_EXAMPLE_PATH.open("rb") as fh:
+        example = tomllib.load(fh)["interests"][0]
+
+    expected = {k: v for k, v in _INTEREST_DEFAULTS.items() if k != "feeds"}
+    missing = sorted(set(expected) - set(example))
+    assert not missing, f"example config omits: {missing}"
+    mismatched = {k: (example[k], v) for k, v in expected.items() if example[k] != v}
+    assert not mismatched, f"example config differs (example, default): {mismatched}"
 
 
 def test_feed_add_remove_round_trip(api):
@@ -158,6 +179,7 @@ def test_put_never_changes_the_name(api):
     ({"name": "X", "delivery": []}, "delivery"),
     ({"name": "X", "delivery": ["carrier-pigeon"]}, "delivery"),
     ({"name": "X", "enable_summary": "yes"}, "boolean"),
+    ({"name": "X", "email_themes": "yes"}, "boolean"),
     ({"name": "X", "input_data_length_mode": "all_of_it"}, "input_data_length_mode"),
     ({"name": "X", "nonexistent_field": 1}, "unknown field"),
 ])

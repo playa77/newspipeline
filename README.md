@@ -8,8 +8,9 @@ client** GUI over an SSH tunnel.
 
 Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.4.1** — fully implemented; guard-test suite green
-> (`pytest tests/`). Decisions and invariants: [DECISIONS.md](DECISIONS.md);
+> Status: **0.5.0** — fully implemented; guard-test suite green
+> (`pytest tests/` — 176 tests, ~60 s). Decisions and invariants:
+> [DECISIONS.md](DECISIONS.md);
 > changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
 > [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -47,7 +48,10 @@ browser-originated requests on the machines themselves.
   multipart/alternative — a designed HTML report plus a plain-text part
   rendered from the same document, so Gmail, Apple Mail and Outlook show the
   layout, and every topic's sources are linked under that topic) and/or local
-  markdown files (a server-side archive of the same documents)
+  markdown files (a server-side archive of the same documents). The per-theme
+  emails are a per-interest switch (`email_themes`, default on): with it off
+  the interest receives the daily brief only, and its themes are still
+  generated and archived
 - **Any OpenAI-compatible LLM endpoint** (default: OpenRouter), per-stage
   model overrides, optional reasoning effort
 - Secrets in `.env` on the server only — never in config files, never in
@@ -153,7 +157,9 @@ history — renaming asks a trivial confirmation.
 
 - Local files: `<output_dir>/<interest>/<run-date>/` under
   `NEWSPIPELINE_HOME` — an archive on the VPS
-- Email: daily brief plus one email per theme with its enabled deliverables
+- Email: the daily brief, plus one email per theme with its enabled
+  deliverables — unless the interest sets `email_themes = false`, in which
+  case the brief is its only mail
 - Run history and all scraped articles: `data/news.db` (SQLite)
 
 Runs are linked to interests **by name**. Deleting an interest still
@@ -240,9 +246,10 @@ recipient override, else the global fallback address).
 pytest tests/ -v
 ```
 
-The suite includes the guard tests G1–G9 (secrets, URL dedupe, scheduler
+The suite includes the guard tests G1–G10 (secrets, URL dedupe, scheduler
 semantics, language detection, end-to-end run, event-loop responsiveness,
-SMTP TLS verification, rename-preserves-history, startup sweep) defined
+SMTP TLS verification, rename-preserves-history, startup sweep, LLM
+null-content) defined
 in DECISIONS.md; tests run entirely against local fixtures and never
 touch the real `config/settings.toml`, `.env`, or `data/news.db`.
 
@@ -251,18 +258,25 @@ touch the real `config/settings.toml`, `.env`, or `data/news.db`.
 These steps need live credentials, remote hosts, or human eyes and are
 therefore mocked in tests but must be verified manually once:
 
-- [ ] **Live Gmail inbox delivery**: configure the Gmail relay per above,
-      trigger a run, confirm the brief/theme emails arrive in the personal
-      (receiver) inbox.
+- [x] **Live Gmail inbox delivery** (2026-09-18, operator-witnessed on the
+      live install): the brief and theme emails arrive in the personal
+      (receiver) inbox, including the 0.5.0 HTML-first layout.
 - [ ] **First-send security approval**: on the first send from the VPS
       IP, approve Google's security review at myaccount.google.com/security
       and confirm subsequent sends succeed without intervention.
-- [ ] **VPS deployment**: follow the VPS deployment section on a fresh
-      VPS; confirm the unit starts, survives `kill -9` mid-run (row swept,
-      interest reruns), and `systemctl stop` exits cleanly.
+- [x] **VPS deployment** (2026-09-18, operator-witnessed on the live
+      install): the unit starts and serves, runs complete, and
+      `systemctl stop` exits cleanly.
+- [ ] **Crash recovery on the live install**: `kill -9` mid-run leaves the
+      run orphaned, the row is swept at the next serve startup on the real
+      host, and the interest reruns (unit-level behaviour is covered by G9;
+      this row is the on-host confirmation).
 - [ ] **Tunnel end-to-end**: from the desktop, connect via the client and
       exercise every tab; verify direct access to port 8421 from outside
       is refused (loopback bind only).
+
+Ticked rows were verified by the operator against the live install on
+2026-09-18; the unticked rows still need their first manual pass.
 
 Project decisions and invariants: [DECISIONS.md](DECISIONS.md).
 Deployment: [DEPLOYMENT.md](DEPLOYMENT.md). Changes:

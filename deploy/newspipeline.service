@@ -1,4 +1,4 @@
-# newspipeline systemd *system* service — headless JSON API + scheduler (0.3.0).
+# newspipeline systemd *system* service — headless JSON API + scheduler (0.5.0).
 #
 # State lives under NEWSPIPELINE_HOME (suggested: /var/lib/newspipeline):
 #   /var/lib/newspipeline/config/settings.toml

@@ -632,3 +632,108 @@ here", and on structured generation: "your recommendation is approved".
   the updated e2e assertions, which now prove per-topic attribution
   end-to-end.
 
+## 2026-09-16 — Live-install config: topic-article target 600 → 500 words (R1, operator-directed)
+
+Operator set the default per-topic article length to ~500 words on the VPS
+install only; script (1250) and brief (600) targets unchanged, code defaults
+untouched. Applied via `PUT /api/interests/<name>` (`{"target_summary_words":
+500}`) for all five interests; verified in the API read-back and on-disk
+`/var/lib/newspipeline/config/settings.toml`. Supersedes D12's 600 for the
+deployed instance only.
+
+## 2026-09-18 — D13: daily brief target 600 → 690 words (+15%), product-wide (R1, operator-directed)
+
+Operator: "also make the daily brief 15% longer for me (the user/customer)".
+600 + 15 % = 690 words. Unlike the live-only 500-word topic-article change
+above, this one lands in every place the default lives —
+`config/settings.example.toml`, the API's creation defaults
+(`web/app.py::_INTEREST_DEFAULTS`), the pipeline fallback
+(`pipeline.py::_brief`) and the client's word-target spin default
+(`widgets/interests_tab.py::_WORD_DEFAULTS`) — because the operator IS the
+customer: a fresh install must behave like the live one. The prompt already
+interpolates `{target_words}` with a ±10 % tolerance
+(`prompts.py::BRIEF_EN_USER` / `BRIEF_DE_USER`), so no prompt change was
+needed. Covered by `tests/test_api.py` (creation default 690, boolean/
+word-key defaults) and by the new
+`test_example_config_documents_every_creation_default`, which fails when the
+example config and the creation defaults drift apart — proved against a
+deliberate 690 → 600 edit before being accepted.
+
+## 2026-09-18 — D14: per-theme result emails become a per-interest toggle (`email_themes`); the live install goes brief-only (R2, operator-directed)
+
+Operator: "limit the current jobs on the vps to the daily briefs for user
+interests only. no email per theme anymore, as that is too much and the
+daily brief is enough." Rejected alternative (config-only, no code):
+`enable_summary = false` stops the per-topic articles existing at all —
+rejected because the complaint was mail volume, not article volume, and the
+articles feed the client's theme views, the file archive and the DB rows.
+
+- New per-interest boolean `email_themes` (default `true`), validated like
+  the other deliverable toggles, honoured in
+  `emailer.send_pipeline_results`: false suppresses the per-theme emails and
+  leaves the daily brief as the interest's only mail. The brief is
+  synthesized from each theme's title and description
+  (`pipeline.py::_brief`), never from the per-theme articles, so brief
+  content is identical either way — that is what makes the toggle safe.
+- A per-deliverable mail mode inside the `delivery` list was rejected: a
+  wider persisted-config contract change (API validation, client checkbox
+  semantics, docs) for the same result.
+- Client: "Also email each theme separately" in the Delivery box,
+  round-tripped through the save payload.
+- Live install (operator row, pending the release handover at the time of
+  writing): all five interests to `email_themes = false` (plus
+  `target_brief_words = 690`, D13), applied over the loopback API and read
+  back afterwards.
+
+## 2026-09-18 — D15: release 0.5.0 — first annotated tag, one label for both distributions, artifacts published (R3, operator-decided)
+
+Operator: "let's do a release at this point", then approval of the batched
+ruling round (label, client version, publishing shape) with "proceed".
+Rulings, in the operator's own terms:
+
+- **Label 0.5.0** — the version already declared in
+  `pyproject.toml` / `__init__.py` and described by the CHANGELOG's
+  "in progress" section; the label names the content it carries and that
+  section is promoted in the same change. First tag in the repo (closes
+  OI-10), which adopts the tag-per-release rule: every released version gets
+  an annotated tag, so a rollback target always exists.
+- **One label for both distributions** — the client
+  (`client/pyproject.toml`, `newspipeline_client.__version__`) moves
+  0.3.0 → 0.5.0; one product version is what the operator and a future
+  installer can reason about.
+- **Publishing shape** — annotated tag + GitHub release page carrying the
+  built sdist + wheel of both distributions and a `SHA256SUMS` manifest,
+  with the published bytes verified by re-download and compared against
+  GitHub's own asset digests. The repo stays a path install
+  (`pip install -e .`, `pip install ./client`); `dist/` is git-ignored, so
+  the artifacts exist on the release page only.
+- **Release mechanics are operator rows** (standing constraint in
+  OPEN_ISSUES.md: the agent never commits, tags or pushes); the agent
+  prepares the tree, the artifacts, the notes and the command block.
+
+## 2026-09-18 — Correction: remote/SSH work is the agent's job (R3, operator-corrected)
+
+The operator corrected a standing rule that had been recorded backwards: an
+earlier session encoded the 2026-09-16 ssh-prompt incident as "the agent never
+opens an SSH connection to the VPS; remote/deployed-revision checks are
+operator rows". Operator ruling: "this memory/understanding of our workflow is
+absolutely, diametrically wrong … what i need for you is to do all ssh stuff
+over sshpass and never spawn a ui login prompt window on the developer
+system."
+
+- **Ruling:** the agent runs every remote operation itself — `ssh`, `scp` and
+  `git`-over-ssh — non-interactively over `sshpass` (`sshpass -e` with the
+  password from the documented access file; `GIT_SSH_COMMAND="sshpass -e ssh"`
+  for the git remote; `StrictHostKeyChecking=accept-new`; `-tt` only when a
+  real tty is required). Where key-based auth is configured, it is used with
+  the same prompt-proof flags (`BatchMode=yes`, `NumberOfPasswordPrompts=0`).
+- **What remains forbidden:** any invocation that can fall back to an
+  interactive prompt and pop a login/password window on the operator's dev box
+  — which is what the un-`sshpass`'d `git ls-remote vps` did. The failure mode
+  was the prompt, not the SSH.
+- **Unchanged:** the agent never commits, stages, pushes or tags; merges and
+  releases stay the operator's, as do the git pushes that carry them.
+- Applied in the same change: OPEN_ISSUES.md's standing-constraints block and
+  rows OI-04/OI-12 (the deployed-revision check is an agent row), and the local
+  memory note that carried the false rule.
+

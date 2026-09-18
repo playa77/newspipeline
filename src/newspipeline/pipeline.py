@@ -491,7 +491,7 @@ class Pipeline:
         theme_summaries = "\n\n".join(
             f"## {n}. {t['title']}\n{t['description']}" for n, t in enumerate(themes, 1)
         )
-        target_brief = interest.get("target_brief_words", 600)
+        target_brief = interest.get("target_brief_words", 690)
 
         language = detect_language(theme_summaries)
 
