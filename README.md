@@ -9,7 +9,7 @@ client** GUI over an SSH tunnel.
 Python 3.12+, no Docker, no database server, no build step.
 
 > Status: **0.5.1** — fully implemented; guard-test suite green
-> (`pytest tests/` — 179 tests, ~60 s). Decisions and invariants:
+> (`pytest tests/` — 209 tests, ~60 s; five additional client tests). Decisions and invariants:
 > [DECISIONS.md](DECISIONS.md);
 > changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
 > [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -67,6 +67,17 @@ pip install -e ".[dev]"
 newspipeline init          # creates config/settings.toml, data/, .env
 $EDITOR .env               # set NEWS_API_KEY (OpenRouter key)
 ```
+
+## Recipients and independent delivery
+
+Multiple recipients can inherit shared defaults or another recipient's
+configuration while overriding their own interests, feeds, deliverable types,
+word targets, detail levels, and delivery schedules. Collection and delivery
+have separate per-interest clocks; scheduled output is persisted across restarts.
+Deduplication and related-content groups are isolated by recipient and interest.
+Existing single-recipient configurations remain supported. See
+[Recipients, inheritance, and delivery](docs/recipients.md) for configuration,
+API/client controls, CLI commands, and migration/recovery semantics.
 
 ## Configuration
 
@@ -246,6 +257,8 @@ recipient override, else the global fallback address).
 
 ```bash
 pytest tests/ -v
+# With the editable desktop client installed (pip install -e ./client):
+QT_QPA_PLATFORM=offscreen pytest client/tests/ -v
 ```
 
 The suite includes the guard tests G1–G10 (secrets, URL dedupe, scheduler

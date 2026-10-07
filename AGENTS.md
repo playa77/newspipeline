@@ -12,8 +12,9 @@ Python 3.12+, src layout. No linter/formatter/typechecker configured;
 ```bash
 source .venv/bin/activate
 pip install -e ".[dev]"        # server + dev deps (client: pip install ./client)
-pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 179 tests)
+pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 209 tests)
 pytest tests/test_rename_history.py -v   # single guard file
+QT_QPA_PLATFORM=offscreen pytest client/tests/ -v  # 5 desktop/API checks (client installed)
 ```
 
 App entry point (`newspipeline.cli`):
@@ -27,11 +28,21 @@ App entry point (`newspipeline.cli`):
   in `config/settings.toml` (reference: `config/settings.example.toml`).
 - `serve` runs the scheduler on a background asyncio thread; settings are
   re-read every tick, so config edits apply without restart.
-- Runs link to interests **by name**. Renaming goes exclusively through
-  `POST /api/interests/<name>/rename`: repoint `runs` rows in SQLite first
+- Runs link to stable `interest_scopes` identified by `(recipient_id, interest_name)`;
+  legacy interests use the empty recipient id. URLs dedupe within that scope.
+  `theme_articles` composite FKs require theme/source membership within one run.
+  Recipients inherit sparse shared/default/parent settings (recipients.py).
+  Renaming goes exclusively through
+  `POST /api/interests/<name>/rename` or its `/api/recipients/<id>/interests/`
+  equivalent: rename the stable scope in SQLite first
   (idempotent), then atomically rewrite settings.toml; re-running a
   half-applied rename converges. `PUT /api/interests/<name>` can never
   change the name.
+- Per-interest `delivery_schedule` is separate from collection `start_time`/
+  `interval_hours`. Completed scheduled output is persisted in
+  `pending_deliveries`; serve drains due jobs without needing an LLM key.
+  Failed jobs require explicit retries; interrupted sends are at-least-once.
+  See docs/recipients.md for API contracts and inheritance precedence.
 - Orphaned `running` rows are swept to failed at **serve startup only**;
   one-shot `run` deliberately never sweeps (a concurrent serve may own the row).
 - `NEWSPIPELINE_HOME=/dir` relocates `config/`, `data/`, `.env`,
@@ -49,9 +60,8 @@ App entry point (`newspipeline.cli`):
   `test_e2e`, `test_scrape_loop`, `test_emailer_tls`,
   `test_rename_history`, `test_startup_sweep`, `test_llm_null_content`).
   Never weaken or skip them.
-- The client has **no automated tests**; GUI behavior is verified offscreen
-  at best. Visual/desktop-side checks are manual steps (README's
-  human-verification checklist).
+- The client has five HTTP-routing/offscreen regression tests in `client/tests/`.
+  Visual desktop and remote SSH checks remain manual (README's checklist).
 
 ## Hard boundaries
 

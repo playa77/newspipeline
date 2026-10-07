@@ -9,7 +9,7 @@ Commands:
            bound to the loopback interface (tunnel trust boundary, D7)
 """
 
-# version: 0.3.0
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from typing import Any
 
 from newspipeline import __version__
 from newspipeline import config
+from newspipeline.recipients import effective_interests, resolve_recipients
 from newspipeline import delivery
 from newspipeline.pipeline import Pipeline
 from newspipeline.scheduler import SchedulerThread, is_paused
@@ -75,7 +76,7 @@ async def _run_selected(
                 run_id=run_id, store=store, settings=settings, interest=interest,
             )
             if status == "completed":
-                print(f"{name}: run {run_id} completed")
+                print(f"{name}: run {run_id} completed" + (f"; delivery queued for {run['delivery_due_at']}" if run.get("delivery_status") == "pending" else ""))
             else:
                 failures += 1
                 error = run.get("error") or "unknown error"
@@ -87,9 +88,12 @@ async def _run_selected(
     return failures
 
 
-def _cmd_run(interest: str | None, run_all: bool) -> int:
+def _cmd_run(interest: str | None, run_all: bool, recipient_id: str | None = None) -> int:
     settings = config.load_settings()
-    interests = settings.get("interests", [])
+    if recipient_id is not None and recipient_id not in {"", *(r["id"] for r in resolve_recipients(settings))}:
+        print(f"recipient {recipient_id!r} not found", file=sys.stderr)
+        return 1
+    interests = effective_interests(settings, recipient_id)
 
     if run_all:
         selected = [i for i in interests if not is_paused(i)]
@@ -98,6 +102,9 @@ def _cmd_run(interest: str | None, run_all: bool) -> int:
             return 0
     else:
         selected = [i for i in interests if i.get("name") == interest]
+        if len(selected) > 1:
+            print("interest name is ambiguous — specify --recipient ID", file=sys.stderr)
+            return 1
         if not selected:
             names = ", ".join(i.get("name", "?") for i in interests) or "(none)"
             print(f"interest {interest!r} not found — configured: {names}", file=sys.stderr)
@@ -161,6 +168,7 @@ def main() -> int:
     sub.add_parser("init", help="create settings.toml, data/ and .env from templates")
 
     run_p = sub.add_parser("run", help="run the pipeline manually")
+    run_p.add_argument("--recipient", help="limit to one recipient id")
     group = run_p.add_mutually_exclusive_group(required=True)
     group.add_argument("--interest", metavar="NAME", help="run a single interest by name")
     group.add_argument("--all", action="store_true", help="run all non-paused interests")
@@ -174,7 +182,7 @@ def main() -> int:
     if args.command == "init":
         return _cmd_init()
     if args.command == "run":
-        return _cmd_run(args.interest, args.all)
+        return _cmd_run(args.interest, args.all, args.recipient)
     if args.command == "serve":
         return _cmd_serve(args.host, args.port, args.no_scheduler)
     return 2

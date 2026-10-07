@@ -26,18 +26,20 @@ body (G1): SMTP host/port/user live in settings.toml, the passwords stay
 in .env on the VPS and are managed over SSH, not HTTP.
 """
 
-# version: 0.5.0
+# version: 0.6.0
 
 from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from typing import Any
 from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
 
 from newspipeline import __version__, config
+from newspipeline.recipients import INTEREST_DEFAULTS as _INTEREST_DEFAULTS, INT_RANGES as _INT_RANGES
 from newspipeline.scheduler import is_paused
 from newspipeline.store import Store
 
@@ -56,37 +58,6 @@ _EFFORT_LEVELS = ("", "low", "medium", "high")
 _STAGES = ("analysis", "generation", "brief")
 
 # Defaults applied on creation; every key stays individually editable.
-_INTEREST_DEFAULTS: dict[str, Any] = {
-    "start_time": "04:00",
-    "interval_hours": 24,
-    "max_themes": 5,
-    "enable_summary": True,
-    "enable_script": False,
-    "enable_script_de": False,
-    "enable_brief": True,
-    # Per-theme result emails. False = the daily brief is this interest's
-    # only mail; its themes are still generated and archived either way.
-    "email_themes": True,
-    "target_summary_words": 600,
-    "target_script_words": 1250,
-    "target_script_de_words": 1250,
-    "target_brief_words": 690,
-    "delivery": ["file"],
-    "email_recipient": "",
-    "input_data_length_mode": "full_article",
-    "input_word_count": 256,
-    "feeds": [],
-}
-
-_INT_RANGES: dict[str, tuple[int, int]] = {
-    "interval_hours": (1, 168),
-    "max_themes": (1, 100),
-    "target_summary_words": (1, 100_000),
-    "target_script_words": (1, 100_000),
-    "target_script_de_words": (1, 100_000),
-    "target_brief_words": (1, 100_000),
-    "input_word_count": (1, 100_000),
-}
 
 
 def _find_interest(settings: dict[str, Any], name: str) -> dict[str, Any] | None:
@@ -190,7 +161,7 @@ def _validate_interest(
             interest[key] = value
     for key in (
         "enable_summary", "enable_script", "enable_script_de", "enable_brief",
-        "email_themes",
+        "email_themes", "enabled",
     ):
         if key in data:
             if not isinstance(data[key], bool):
@@ -206,6 +177,17 @@ def _validate_interest(
                 return None, err
             feeds.append(feed)
         interest["feeds"] = feeds
+    for key in ("summary_detail", "script_detail", "script_de_detail", "brief_detail"):
+        if key in data:
+            if data[key] not in ("concise", "standard", "detailed"):
+                return None, f"{key} must be concise, standard, or detailed"
+            interest[key] = data[key]
+    if "delivery_schedule" in data:
+        from newspipeline.timing import validate_delivery_schedule
+        try:
+            interest["delivery_schedule"] = validate_delivery_schedule(data["delivery_schedule"])
+        except ValueError as exc:
+            return None, str(exc)
     return interest, None
 
 
@@ -402,6 +384,7 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
             "scheduler_running": bool(app.config["SCHEDULER"]),
             "api_key_configured": config.has_api_key(),
             "interests": interests,
+            "deliveries": app.config["STORE"].list_deliveries(),
         })
 
     # ---- interests -------------------------------------------------------------
@@ -522,7 +505,12 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
             # D11 order: SQLite FIRST, then atomically rewritten settings.
             # Step 2 is idempotent, so re-running a half-applied rename
             # converges.
-            repointed = app.config["STORE"].rename_interest(name, new_name)
+            try:
+                repointed = app.config["STORE"].rename_interest(name, new_name)
+            except sqlite3.IntegrityError:
+                return _err("Destination has retained history; choose another name", 409)
+            except ValueError as exc:
+                return _err(str(exc), 409)
             old["name"] = new_name
             config.save_settings(settings)
         logger.info("API: interest renamed %r -> %r (%d run row(s) repointed)",
@@ -579,6 +567,8 @@ def create_app(store: Store | None = None, scheduler: Any = None) -> Flask:
         logger.info("API: feed %r removed from interest %r", removed.get("name"), name)
         return jsonify({"feeds": feeds})
 
+    from newspipeline.web.recipient_api import register_recipient_api
+    register_recipient_api(app, _validate_interest, _err, _json_body)
     return app
 
 

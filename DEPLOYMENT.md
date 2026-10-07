@@ -185,3 +185,25 @@ Keep the backup owned by root or `newspipeline`, never world-readable
   `systemd-networkd-wait-online.service`) are unrelated noise.
 - This file is safe to commit — no secrets here. Operator credentials live
   in private notes outside the repo.
+
+
+## Recipient configuration and scheduled-delivery upgrade
+
+The recipient/interest scope migration runs automatically when Store opens.
+Stop the service and make a consistent SQLite backup before upgrading the
+code, then start the service as the existing dedicated `newspipeline` user.
+Migration preserves ids and content and rolls back invalid foreign keys; do
+not bypass a migration failure. The new schema is not compatible with an old
+server binary: rollback requires restoring the pre-upgrade database backup.
+No extra service or system account is needed.
+
+Configure recipients and inherited defaults in settings.toml or through the
+SSH-tunneled API/client. Existing legacy configuration is supported. Keep a
+normal `newspipeline serve` running: `--no-scheduler` does not drain scheduled
+output. Inspect delivery status in the client's Run history or
+`GET /api/deliveries?recipient=<id>`; failed jobs require explicit retries.
+Interrupted sends recover on restart and can repeat emails in the SMTP/SQLite
+crash window. Recipient archives are under `output/recipients/<id>/` (relative
+to NEWSPIPELINE_HOME unless output_dir is absolute); ensure the dedicated
+service user retains write access. Details and API contracts:
+[Recipients and delivery](docs/recipients.md).

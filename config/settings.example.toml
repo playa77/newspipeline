@@ -60,6 +60,15 @@ email = ""
 
 [[interests]]
 name = "Example"
+enabled = true
+# Delivery time is independent of collection start_time. Empty = immediate.
+# Example: {start_time = "09:00", interval_hours = 24, timezone = "Europe/Berlin"}
+delivery_schedule = {}
+# Each deliverable can choose concise | standard | detailed context.
+summary_detail = "standard"
+script_detail = "standard"
+script_de_detail = "standard"
+brief_detail = "standard"
 # Schedule: first run of the day at start_time, then every interval_hours.
 start_time = "04:00"
 interval_hours = 24          # 1..168
@@ -94,3 +103,27 @@ input_word_count = 256       # used only when mode = "word_count"
 name = "Example Feed"
 url = "https://example.com/rss.xml"
 category = "news"
+
+# Multiple recipients and inherited interest templates can coexist with the
+# legacy interests above. See docs/recipients.md for a complete example.
+#
+# [recipient_defaults.interest_defaults]
+# target_summary_words = 300
+# summary_detail = "concise"
+# delivery_schedule = {start_time = "09:00", interval_hours = 24}
+#
+# [[recipients]]
+# id = "alice"
+# email = "alice@example.com"
+# [[recipients.interests]]
+# name = "Energy"
+# feeds = [{name = "Energy feed", url = "https://example.com/energy.xml"}]
+#
+# [[recipients]]
+# id = "bob"
+# parent = "alice"
+# email = "bob@example.com"
+# [[recipients.interests]]
+# name = "Energy"
+# target_summary_words = 150
+# delivery_schedule = {start_time = "12:00"}
