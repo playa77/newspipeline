@@ -552,3 +552,20 @@ settings UI (agent cannot see pages; human browser check pending).
   by recipient. Keep existing single-recipient configuration/API behavior.
 - Add migration, inheritance, scoped API/database, queue, DST, multi-recipient
   end-to-end and offscreen desktop regression coverage.
+
+## Client 0.6.1 — complete recipient administration
+
+- Add a validated complete-configuration editor for shared named interest
+  templates, feed lists, disabled interests and all sparse recipient settings.
+- Restore inheritance for an individual interest setting, preserving other
+  overrides; explain exclusion and restoration without implying lost history.
+- Discard stale recipient-list responses after reconnection, prevent settings
+  saves before loading, select newly created recipients, and reset connection
+  controls on disconnect. Guard global settings against stale server responses,
+  label the legacy email scope, show zero delivery attempts and retry failed jobs only.
+- Update the client package version, administration README, recipient guide and
+  desktop upgrade instructions. Add offscreen regressions including real API
+  validation and shared-template propagation through the configuration editor.
+- Validation: 219 server/client tests pass, including all 10 offscreen client
+  tests. Local fixture socket access is required in the execution environment.
+  Visual desktop and live SSH checks remain manual.

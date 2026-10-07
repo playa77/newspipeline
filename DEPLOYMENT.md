@@ -207,3 +207,10 @@ crash window. Recipient archives are under `output/recipients/<id>/` (relative
 to NEWSPIPELINE_HOME unless output_dir is absolute); ensure the dedicated
 service user retains write access. Details and API contracts:
 [Recipients and delivery](docs/recipients.md).
+
+Reinstall the desktop distribution separately after this upgrade:
+`pip install --upgrade ./client` on each administration desktop, then restart
+`newspipeline-client`. Client 0.6.1 requires the recipient-capable server API;
+updating only the server does not update a copied desktop installation. Verify
+two recipient scopes, shared-template inheritance and delivery retries using
+the [client checklist](client/README.md).

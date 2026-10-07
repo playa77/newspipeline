@@ -1,7 +1,7 @@
 """Main window: connection bar (tunnel lifecycle + visible state) and the
-three management tabs."""
+four administration tabs."""
 
-# version: 0.6.0
+# version: 0.6.1
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class _TunnelSignalBridge(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("newspipeline client")
+        self.setWindowTitle("newspipeline administration")
         self.profile = Profile.load()
         self._tunnel_bridge = _TunnelSignalBridge()
         self._tunnel_bridge.state.connect(self._on_tunnel_state)
@@ -100,6 +100,8 @@ class MainWindow(QMainWindow):
         self.recipient_combo = QComboBox()
         self.recipient_combo.addItem("Legacy configuration", "")
         self.recipient_combo.currentIndexChanged.connect(self._select_recipient)
+        self.recipient_combo.setEnabled(False)
+        self.recipient_combo.setToolTip("Recipient scope for Interests and Run history; global settings and defaults apply across recipients.")
         layout.addWidget(self.recipient_combo)
 
         # ---- tabs -------------------------------------------------------------
@@ -159,8 +161,6 @@ class MainWindow(QMainWindow):
             self.settings_tab.set_client(self.client)
             self.recipients_tab.set_client(self.client)
             self._refresh_recipients()
-            self.interests_tab.set_client(self.client)
-            self.history_tab.set_client(self.client)
             self.tabs.setEnabled(True)
             self.state_label.setText(
                 f"Connected — server reachable via 127.0.0.1:{local_port}"
@@ -191,14 +191,23 @@ class MainWindow(QMainWindow):
         self.interests_tab.set_client(None)
         self.history_tab.set_client(None)
         self.tabs.setEnabled(False)
+        self.recipient_combo.blockSignals(True)
+        self.recipient_combo.clear()
+        self.recipient_combo.addItem("Legacy configuration", "")
+        self.recipient_combo.blockSignals(False)
+        self.recipient_combo.setEnabled(False)
+        self._reset_connection_controls()
 
     def _refresh_recipients(self):
         if self.client is None:
             return
-        submit(self.client.list_recipients, self._populate_recipients,
+        client = self.client
+        submit(client.list_recipients,
+               lambda data: self._populate_recipients(data) if self.client is client else None,
                show_error_with(self, "Loading recipient selection failed"))
 
     def _populate_recipients(self, recipients):
+        self.recipient_combo.setEnabled(True)
         current = self.recipient_combo.currentData()
         self.recipient_combo.blockSignals(True)
         self.recipient_combo.clear()

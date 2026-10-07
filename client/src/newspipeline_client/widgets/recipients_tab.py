@@ -1,13 +1,14 @@
 """Recipient and shared defaults editor; omitted fields remain inherited."""
 
-# version: 0.6.0
+# version: 0.6.1
 
 from copy import deepcopy
+import json
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QPlainTextEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 from ..workers import submit, show_error_with
 
@@ -31,9 +32,12 @@ class RecipientsTab(QWidget):
         left.addWidget(add)
         delete = QPushButton("Delete recipient")
         delete.clicked.connect(self._delete)
+        self.delete_button = delete
         left.addWidget(delete)
         root.addLayout(left, 1)
         editor = QWidget()
+        self.editor = editor
+        editor.setEnabled(False)
         form = QFormLayout(editor)
         self.identity = QLabel("Shared defaults")
         form.addRow("Recipient", self.identity)
@@ -83,6 +87,12 @@ class RecipientsTab(QWidget):
         self.save = QPushButton("Save recipient settings")
         self.save.clicked.connect(self._save)
         form.addRow(self.save)
+        complete = QPushButton("Edit complete configuration and interest templates…")
+        complete.clicked.connect(self._edit_configuration)
+        form.addRow(complete)
+        form.addRow(QLabel("The complete editor manages named interest templates, feeds,\n"
+                            "disabled interests and settings absent from this form.\n"
+                            "Omitted fields inherit; explicit values override."))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(editor)
@@ -91,17 +101,20 @@ class RecipientsTab(QWidget):
 
     def set_client(self, client):
         self.client = client
+        self.editor.setEnabled(False)
         self.setEnabled(client is not None)
         if client:
             self.refresh()
         else:
             self.list.clear()
+            self._raw = {}
 
     def refresh(self):
         if not self.client:
             return
         client = self.client
-        submit(lambda: (client.get_recipient_defaults(), client.list_recipients()), self._populate,
+        submit(lambda: (client.get_recipient_defaults(), client.list_recipients()),
+               lambda result: self._populate(result) if self.client is client else None,
                show_error_with(self, "Loading recipients failed"))
 
     def _populate(self, result):
@@ -120,8 +133,10 @@ class RecipientsTab(QWidget):
     def _select(self, item, _previous):
         if self._loading or item is None:
             return
+        self.editor.setEnabled(True)
         self._raw = deepcopy(item.data(Qt.UserRole))
         self._shared = "id" not in self._raw
+        self.delete_button.setEnabled(not self._shared)
         self.identity.setText(self._raw.get("id", "Shared defaults"))
         self.parent_id.setText(self._raw.get("parent", ""))
         self.parent_id.setEnabled(not self._shared)
@@ -143,8 +158,61 @@ class RecipientsTab(QWidget):
         self.interval.setValue((schedule or {}).get("interval_hours", 24))
         self.timezone.setText((schedule or {}).get("timezone", ""))
 
+    def _edit_configuration(self):
+        if not self.client or self.list.currentItem() is None:
+            return
+        client, shared = self.client, self._shared
+        rid = self._raw.get("id")
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Complete configuration — {rid or 'Shared defaults'}")
+        dialog.resize(700, 600)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Edit sparse JSON configuration. Named interests merge by name; feed lists replace.\n"
+                               "Remove an override to inherit. Set enabled to false to exclude an interest,\n"
+                               "or true to restore it. Save replaces this configuration; keep entries to retain.\n"
+                               "Recipient ids cannot change. Secrets belong on the server."))
+        editor = QPlainTextEdit(json.dumps(self._raw, indent=2, ensure_ascii=False))
+        layout.addWidget(editor)
+        error = QLabel()
+        error.setWordWrap(True)
+        layout.addWidget(error)
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        layout.addWidget(buttons)
+        buttons.rejected.connect(dialog.reject)
+
+        def save():
+            if self.client is not client:
+                error.setText("The connection changed. Close this editor and reload the configuration.")
+                return
+            try:
+                data = json.loads(editor.toPlainText())
+                if not isinstance(data, dict):
+                    raise ValueError("Configuration must be a JSON object.")
+                if not shared and data.get("id", rid) != rid:
+                    raise ValueError("Recipient ids cannot change.")
+            except (ValueError, TypeError) as exc:
+                error.setText(str(exc))
+                return
+            buttons.button(QDialogButtonBox.Save).setEnabled(False)
+
+            def failed(message):
+                error.setText(message)
+                buttons.button(QDialogButtonBox.Save).setEnabled(True)
+
+            def saved(_):
+                dialog.accept()
+                if self.client is client:
+                    self.refresh()
+                    self.data_changed.emit()
+
+            submit(lambda: client.put_recipient_defaults(data) if shared else client.update_recipient(rid, data),
+                   saved, failed)
+
+        buttons.accepted.connect(save)
+        dialog.exec()
+
     def _save(self):
-        if not self.client:
+        if not self.client or self.list.currentItem() is None:
             return
         data = deepcopy(self._raw)
         if self.inherit_email.isChecked():
@@ -193,8 +261,13 @@ class RecipientsTab(QWidget):
         if not ok or not rid.strip():
             return
         client = self.client
+        def created(_):
+            if self.client is client:
+                self._raw = {"id": rid.strip()}
+                self.refresh()
+                self.data_changed.emit()
         submit(lambda: client.create_recipient({"id": rid.strip()}),
-               lambda _: (self.refresh(), self.data_changed.emit()), show_error_with(self, "Creating recipient failed"))
+               created, show_error_with(self, "Creating recipient failed"))
 
     def _delete(self):
         if not self.client or self._shared:

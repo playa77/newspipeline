@@ -1,6 +1,6 @@
 """Run-history tab — recent runs per interest from GET /api/status."""
 
-# version: 0.6.0
+# version: 0.6.1
 
 from __future__ import annotations
 
@@ -84,7 +84,8 @@ class HistoryTab(QWidget):
         self.delivery_table.setRowCount(len(deliveries))
         for row, job in enumerate(deliveries):
             for col, key in enumerate(("run_id", "due_at", "status", "attempts", "error")):
-                self.delivery_table.setItem(row, col, QTableWidgetItem(str(job.get(key) or "")))
+                value = job.get(key)
+                self.delivery_table.setItem(row, col, QTableWidgetItem("" if value is None else str(value)))
         self._snapshot = data.get("interests", [])
         names = [entry.get("name", "?") for entry in self._snapshot]
         current = self.interest_combo.currentText()
@@ -99,6 +100,8 @@ class HistoryTab(QWidget):
     def _retry_delivery(self):
         row = self.delivery_table.currentRow()
         if self.client is None or row < 0:
+            return
+        if self.delivery_table.item(row, 2).text() != "failed":
             return
         run_id = int(self.delivery_table.item(row, 0).text())
         client = self.client

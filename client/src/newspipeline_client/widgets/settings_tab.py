@@ -1,6 +1,6 @@
 """Global settings tab — mirrors GET/PUT /api/settings as a form."""
 
-# version: 0.3.0
+# version: 0.6.1
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class SettingsTab(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.client: ApiClient | None = None
+        self._loaded = False
         self.api_key_configured = False
         self._build_ui()
 
@@ -77,7 +78,7 @@ class SettingsTab(QWidget):
         self.smtp_password_note.setWordWrap(True)
         smtp_form.addRow(self.smtp_password_note)
 
-        user_box = QGroupBox("Fallback recipient")
+        user_box = QGroupBox("Legacy recipient (legacy interests only)")
         user_form = QFormLayout(user_box)
         self.user_email = QLineEdit()
         user_form.addRow("Email", self.user_email)
@@ -93,6 +94,7 @@ class SettingsTab(QWidget):
         reload_btn = QPushButton("Reload")
         reload_btn.clicked.connect(self.refresh)
         save_btn = QPushButton("Save settings")
+        self.save_button = save_btn
         save_btn.clicked.connect(self._save)
         buttons.addWidget(reload_btn)
         buttons.addWidget(save_btn)
@@ -102,20 +104,26 @@ class SettingsTab(QWidget):
 
     def set_client(self, client: ApiClient | None) -> None:
         self.client = client
-        self._set_enabled(client is not None)
+        self._loaded = False
+        self._set_enabled(False)
         if client is not None:
             self.refresh()
 
     def _set_enabled(self, enabled: bool) -> None:
+        self.save_button.setEnabled(enabled)
         for child in iter_form_controls(self):
             child.setEnabled(enabled)
 
     def refresh(self) -> None:
         if self.client is None:
             return
-        submit(self.client.get_settings, self._apply, show_error_with(self, "Load failed"))
+        client = self.client
+        submit(client.get_settings, lambda data: self._apply(data) if self.client is client else None,
+               show_error_with(self, "Load failed"))
 
     def _apply(self, data: dict[str, Any]) -> None:
+        self._loaded = True
+        self._set_enabled(True)
         g = data.get("global", {})
         self.api_key_configured = bool(data.get("api_key_configured"))
         self.api_base_url.setText(g.get("api_base_url", ""))
@@ -137,7 +145,7 @@ class SettingsTab(QWidget):
         self.api_key_note.setText(f"API key: {state} (NEWS_API_KEY lives in .env on the server)")
 
     def _save(self) -> None:
-        if self.client is None:
+        if self.client is None or not self._loaded:
             return
         patch = {
             "global": {
@@ -159,9 +167,10 @@ class SettingsTab(QWidget):
             },
             "user": {"email": self.user_email.text().strip()},
         }
+        client = self.client
         submit(
-            lambda: self.client.put_settings(patch),
-            self._saved,
+            lambda: client.put_settings(patch),
+            lambda data: self._saved(data) if self.client is client else None,
             show_error_with(self, "Saving settings failed"),
         )
 

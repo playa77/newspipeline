@@ -14,7 +14,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"        # server + dev deps (client: pip install ./client)
 pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 209 tests)
 pytest tests/test_rename_history.py -v   # single guard file
-QT_QPA_PLATFORM=offscreen pytest client/tests/ -v  # 5 desktop/API checks (client installed)
+QT_QPA_PLATFORM=offscreen pytest client/tests/ -v  # desktop/API checks (client and server installed)
 ```
 
 App entry point (`newspipeline.cli`):
@@ -60,8 +60,10 @@ App entry point (`newspipeline.cli`):
   `test_e2e`, `test_scrape_loop`, `test_emailer_tls`,
   `test_rename_history`, `test_startup_sweep`, `test_llm_null_content`).
   Never weaken or skip them.
-- The client has five HTTP-routing/offscreen regression tests in `client/tests/`.
-  Visual desktop and remote SSH checks remain manual (README's checklist).
+- The client has HTTP-routing/offscreen regression tests in `client/tests/`,
+  including complete-configuration editor integration with the server API.
+  Install both distributions to run these checks. Visual desktop and remote
+  SSH checks remain manual (client/README.md checklist).
 
 ## Hard boundaries
 
