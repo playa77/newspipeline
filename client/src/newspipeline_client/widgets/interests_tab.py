@@ -8,7 +8,7 @@ discoverable, trigger-now, and
 first-class rename (D11) with a trivial confirm — history is preserved.
 """
 
-# version: 0.5.0
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -133,7 +134,7 @@ class InterestsTab(QWidget):
         self.paused_notice.hide()
         right.addWidget(self.paused_notice)
 
-        schedule_box = QGroupBox("Schedule")
+        schedule_box = QGroupBox("Collection schedule")
         schedule_form = QFormLayout(schedule_box)
         self.start_time = QLineEdit()
         self.start_time.setPlaceholderText("HH:MM")
@@ -153,6 +154,12 @@ class InterestsTab(QWidget):
             grid.addWidget(flag_box, row, 0)
             grid.addWidget(words, row, 1)
             self.deliverables[flag] = (flag_box, words)
+        self.detail_levels = {}
+        for row, kind in enumerate(("summary", "script", "script_de", "brief")):
+            detail = QComboBox()
+            detail.addItems(["concise", "standard", "detailed"])
+            grid.addWidget(detail, row, 2)
+            self.detail_levels[kind] = detail
         right.addWidget(deliverables_box)
 
         input_box = QGroupBox("Analysis input")
@@ -173,7 +180,7 @@ class InterestsTab(QWidget):
         modes_row.addWidget(self.file_mode)
         modes_row.addWidget(self.email_mode)
         self.email_recipient = QLineEdit()
-        self.email_recipient.setPlaceholderText("empty = global fallback recipient")
+        self.email_recipient.setPlaceholderText("empty = owning recipient (legacy: global fallback)")
         delivery_layout.addRow(modes_row)
         delivery_layout.addRow("Recipient override", self.email_recipient)
         self.email_themes = QCheckBox("Also email each theme separately")
@@ -182,6 +189,20 @@ class InterestsTab(QWidget):
             "are still generated and kept in the archive and run history."
         )
         delivery_layout.addRow(self.email_themes)
+        self.scheduled_delivery = QCheckBox("Deliver at this interest's scheduled time")
+        self.delivery_time = QLineEdit("09:00")
+        self.delivery_interval = QSpinBox()
+        self.delivery_interval.setRange(1, 24)
+        self.delivery_interval.setValue(24)
+        self.delivery_timezone = QLineEdit()
+        self.delivery_timezone.setPlaceholderText("empty = server timezone")
+        delivery_layout.addRow(self.scheduled_delivery)
+        delivery_layout.addRow("Delivery time (HH:MM)", self.delivery_time)
+        delivery_layout.addRow("Delivery interval hours", self.delivery_interval)
+        delivery_layout.addRow("Delivery timezone", self.delivery_timezone)
+        self.inherit_btn = QPushButton("Use inherited settings for this interest")
+        self.inherit_btn.clicked.connect(self._inherit)
+        delivery_layout.addRow(self.inherit_btn)
         right.addWidget(delivery_box)
 
         feeds_box = QGroupBox("Feeds")
@@ -204,13 +225,21 @@ class InterestsTab(QWidget):
         right.addWidget(save_btn)
 
         right.addStretch(1)
-        root.addLayout(right, 2)
+        editor = QWidget()
+        editor.setLayout(right)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(editor)
+        root.addWidget(scroll, 2)
         self._set_editor_enabled(False)
 
     # ---- client lifecycle ------------------------------------------------------
 
     def set_client(self, client: ApiClient | None) -> None:
         self.client = client
+        self._current_name = None
+        self.list_widget.clear()
+        self._show_interest(None)
         if client is not None:
             self.refresh()
         else:
@@ -220,7 +249,8 @@ class InterestsTab(QWidget):
     def refresh(self) -> None:
         if self.client is None:
             return
-        submit(self.client.list_interests, self._populate,
+        client = self.client
+        submit(client.list_interests, lambda data: self._populate(data) if self.client is client else None,
                show_error_with(self, "Loading interests failed"))
 
     def _populate(self, interests: list[dict[str, Any]]) -> None:
@@ -264,6 +294,14 @@ class InterestsTab(QWidget):
             self.paused_notice.hide()
             return
         self.name_label.setText(interest["name"])
+        self.inherit_btn.setVisible(bool(self.client and self.client.recipient_id))
+        for kind, combo in self.detail_levels.items():
+            combo.setCurrentText(interest.get(f"{kind}_detail", "standard"))
+        schedule = interest.get("delivery_schedule") or {}
+        self.scheduled_delivery.setChecked(bool(schedule))
+        self.delivery_time.setText(schedule.get("start_time", "09:00"))
+        self.delivery_interval.setValue(schedule.get("interval_hours", 24))
+        self.delivery_timezone.setText(schedule.get("timezone", ""))
         self.start_time.setText(interest.get("start_time", "04:00"))
         self.interval_hours.setValue(int(interest.get("interval_hours", 24)))
         for flag, (box, words) in self.deliverables.items():
@@ -284,6 +322,7 @@ class InterestsTab(QWidget):
                 label += f" [{feed['category']}]"
             self.feeds_list.addItem(label)
         self._update_paused_notice()
+        self._baseline_payload = self._collect_payload()
 
     def _update_paused_notice(self) -> None:
         any_enabled = any(box.isChecked() for box, _ in self.deliverables.values())
@@ -321,6 +360,16 @@ class InterestsTab(QWidget):
         for flag, (box, words) in self.deliverables.items():
             payload[flag] = box.isChecked()
             payload[_words_for(flag)] = words.value()
+        for kind, combo in self.detail_levels.items():
+            payload[f"{kind}_detail"] = combo.currentText()
+        payload["delivery_schedule"] = {}
+        if self.scheduled_delivery.isChecked():
+            payload["delivery_schedule"] = {
+                "start_time": self.delivery_time.text().strip(),
+                "interval_hours": self.delivery_interval.value(),
+            }
+            if self.delivery_timezone.text().strip():
+                payload["delivery_schedule"]["timezone"] = self.delivery_timezone.text().strip()
         return payload
 
     def _save(self) -> None:
@@ -328,11 +377,28 @@ class InterestsTab(QWidget):
         if name is None or self.client is None:
             return
         payload = self._collect_payload()
-        submit(
-            lambda: self.client.update_interest(name, payload),
-            lambda _: (self.refresh(), self.data_changed.emit()),
-            show_error_with(self, f"Saving {name!r} failed"),
-        )
+        client = self.client
+        baseline = self._baseline_payload
+        def save():
+            if client.recipient_id:
+                # Only changed controls become overrides. Unedited inherited
+                # settings continue to follow their parent configuration.
+                changes = {k: v for k, v in payload.items() if baseline.get(k) != v}
+                return client.update_interest(name, changes)
+            return client.update_interest(name, payload)
+        submit(save, lambda _: (self.refresh(), self.data_changed.emit()),
+               show_error_with(self, f"Saving {name!r} failed"))
+
+    def _inherit(self) -> None:
+        name = self._require_current()
+        if name is None or self.client is None or not self.client.recipient_id:
+            return
+        client = self.client
+        def reset():
+            overrides = client.get_interest(name)["overrides"]
+            return client.update_interest(name, {"inherit": [k for k in overrides if k != "name"]})
+        submit(reset, lambda _: (self.refresh(), self.data_changed.emit()),
+               show_error_with(self, "Restoring inherited settings failed"))
 
     def _new_interest(self) -> None:
         if self.client is None:
@@ -344,8 +410,9 @@ class InterestsTab(QWidget):
         name = name.strip()
         if not ok or not name:
             return
+        client = self.client
         submit(
-            lambda: self.client.create_interest({"name": name}),
+            lambda: client.create_interest({"name": name}),
             lambda _: (
                 setattr(self, "_current_name", name),
                 self.refresh(),
@@ -366,8 +433,9 @@ class InterestsTab(QWidget):
         )
         if answer != QMessageBox.Yes:
             return
+        client = self.client
         submit(
-            lambda: self.client.delete_interest(name),
+            lambda: client.delete_interest(name),
             lambda _: (
                 setattr(self, "_current_name", None),
                 self.refresh(),
@@ -395,8 +463,9 @@ class InterestsTab(QWidget):
         )
         if confirm != QMessageBox.Yes:
             return
+        client = self.client
         submit(
-            lambda: self.client.rename_interest(name, new_name),
+            lambda: client.rename_interest(name, new_name),
             lambda _: (
                 setattr(self, "_current_name", new_name),
                 self.refresh(),
@@ -417,8 +486,9 @@ class InterestsTab(QWidget):
             "url": dialog.url.text().strip(),
             "category": dialog.category.text().strip(),
         }
+        client = self.client
         submit(
-            lambda: self.client.add_feed(name, feed),
+            lambda: client.add_feed(name, feed),
             lambda _: (self.refresh(), self.data_changed.emit()),
             show_error_with(self, "Adding the feed failed"),
         )
@@ -431,8 +501,9 @@ class InterestsTab(QWidget):
         if index < 0:
             show_error(self, "Select a feed to remove first.")
             return
+        client = self.client
         submit(
-            lambda: self.client.delete_feed(name, index),
+            lambda: client.delete_feed(name, index),
             lambda _: (self.refresh(), self.data_changed.emit()),
             show_error_with(self, "Removing the feed failed"),
         )
@@ -441,8 +512,9 @@ class InterestsTab(QWidget):
         name = self._require_current()
         if name is None or self.client is None:
             return
+        client = self.client
         submit(
-            lambda: self.client.trigger_interest(name),
+            lambda: client.trigger_interest(name),
             lambda _: (
                 QMessageBox.information(
                     self, "newspipeline client",

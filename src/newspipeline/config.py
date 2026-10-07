@@ -10,7 +10,7 @@ Two sources, strictly separated:
   logged, and never returned in an API response body (invariant G1).
 """
 
-# version: 0.3.0
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -126,6 +126,8 @@ def save_settings(settings: dict[str, Any]) -> None:
     Readers never observe a torn file; a crash mid-write leaves the previous
     version intact. Secrets are refused — G1 guard at the write path.
     """
+    from newspipeline.recipients import resolve_recipients
+    resolve_recipients(settings)
     # Scan actual string values, not repr(): repr/TOML escaping hides a
     # secret containing quotes, backslashes or newlines from a substring
     # check against serialized output.

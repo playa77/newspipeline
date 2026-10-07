@@ -5,13 +5,14 @@ the server's structured ``{"error": ...}`` message. No secrets ever flow
 through this module (G1): the API surface has no secret fields by design.
 """
 
-# version: 0.3.0
+# version: 0.6.0
 
 from __future__ import annotations
 
 from typing import Any
 
 import httpx
+from urllib.parse import quote
 
 
 class ApiError(RuntimeError):
@@ -23,9 +24,50 @@ class ApiError(RuntimeError):
 class ApiClient:
     def __init__(self, base_url: str, timeout: float = 10.0):
         self._client = httpx.Client(base_url=base_url, timeout=timeout)
+        self.recipient_id = ""
+        self._owns_transport = True
 
     def close(self) -> None:
-        self._client.close()
+        if self._owns_transport:
+            self._client.close()
+
+    def for_recipient(self, recipient_id: str) -> "ApiClient":
+        scoped = object.__new__(ApiClient)
+        scoped._client = self._client
+        scoped.recipient_id = recipient_id
+        scoped._owns_transport = False
+        return scoped
+
+    def _interest_path(self, name: str = "", suffix: str = "") -> str:
+        prefix = f"/api/recipients/{quote(self.recipient_id, safe='')}/interests" if self.recipient_id else "/api/interests"
+        return prefix + (f"/{quote(name, safe='')}" if name else "") + suffix
+
+    def list_recipients(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/recipients")["recipients"]
+
+    def create_recipient(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/api/recipients", payload)
+
+    def update_recipient(self, rid: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("PUT", f"/api/recipients/{quote(rid, safe='')}", payload)
+
+    def delete_recipient(self, rid: str) -> None:
+        self._request("DELETE", f"/api/recipients/{quote(rid, safe='')}")
+
+    def get_recipient_defaults(self) -> dict[str, Any]:
+        return self._request("GET", "/api/recipient-defaults")
+
+    def put_recipient_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("PUT", "/api/recipient-defaults", payload)
+
+    def get_interest(self, name: str) -> dict[str, Any]:
+        return self._request("GET", self._interest_path(name))
+
+    def get_deliveries(self) -> list[dict[str, Any]]:
+        return self._request("GET", f"/api/deliveries?recipient={quote(self.recipient_id, safe='')}")["deliveries"]
+
+    def retry_delivery(self, run_id: int) -> None:
+        self._request("POST", f"/api/deliveries/{run_id}/retry?recipient={quote(self.recipient_id, safe='')}", {})
 
     # ---- plumbing ----------------------------------------------------------
 
@@ -55,32 +97,32 @@ class ApiClient:
         return self._request("PUT", "/api/settings", patch)
 
     def get_status(self, limit: int = 10) -> dict[str, Any]:
-        return self._request("GET", f"/api/status?limit={limit}")
+        return self._request("GET", f"/api/recipients/{quote(self.recipient_id, safe='')}/status" if self.recipient_id else f"/api/status?limit={limit}")
 
     # ---- interests -----------------------------------------------------------
 
     def list_interests(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/api/interests")["interests"]
+        return self._request("GET", self._interest_path())["interests"]
 
     def create_interest(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("POST", "/api/interests", payload)["interest"]
+        return self._request("POST", self._interest_path(), payload)["interest"]
 
     def update_interest(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("PUT", f"/api/interests/{name}", payload)["interest"]
+        return self._request("PUT", self._interest_path(name), payload)["interest"]
 
     def delete_interest(self, name: str) -> None:
-        self._request("DELETE", f"/api/interests/{name}")
+        self._request("DELETE", self._interest_path(name))
 
     def rename_interest(self, name: str, new_name: str) -> dict[str, Any]:
-        return self._request("POST", f"/api/interests/{name}/rename", {"to": new_name})
+        return self._request("POST", self._interest_path(name, "/rename"), {"to": new_name})
 
     def trigger_interest(self, name: str) -> None:
-        self._request("POST", f"/api/interests/{name}/trigger", {})
+        self._request("POST", self._interest_path(name, "/trigger"), {})
 
     # ---- feeds -----------------------------------------------------------------
 
     def add_feed(self, name: str, feed: dict[str, Any]) -> list[dict[str, Any]]:
-        return self._request("POST", f"/api/interests/{name}/feeds", feed)["feeds"]
+        return self._request("POST", self._interest_path(name, "/feeds"), feed)["feeds"]
 
     def delete_feed(self, name: str, index: int) -> list[dict[str, Any]]:
-        return self._request("DELETE", f"/api/interests/{name}/feeds/{index}")["feeds"]
+        return self._request("DELETE", self._interest_path(name, f"/feeds/{index}"))["feeds"]

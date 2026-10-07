@@ -1,11 +1,11 @@
 """News pipeline core: scrape → analyze → generate → brief.
 
-Single-user: interests come from settings.toml, persistence via store.Store,
+Recipient-scoped: interests come from settings.toml, persistence via store.Store,
 LLM via llm.LLMClient.
 
 Stages:
 1. scrape   — RSS feeds (feedparser) + article body extraction (trafilatura),
-              URL dedupe across all runs, configurable input-length modes
+              URL dedupe across runs within the recipient/interest scope, configurable input-length modes
 2. analyze  — LLM identifies major themes across the run's articles (JSON)
 3. generate — per-theme deliverables: summary, EN script, optional DE script
 4. brief    — daily brief synthesizing all themes, EN/DE auto-detected
@@ -19,7 +19,7 @@ Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.5.0
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -202,6 +202,16 @@ class Pipeline:
         global_cfg = self._settings.get("global", {})
         return (global_cfg.get("models") or {}).get(stage) or None
 
+    @staticmethod
+    def _detail_instruction(interest: dict[str, Any], kind: str) -> str:
+        detail = interest.get(f"{kind}_detail", "standard")
+        guidance = {
+            "concise": "Prioritize essential facts; minimize background and examples.",
+            "standard": "Balance key facts with useful context.",
+            "detailed": "Include supporting context, implications, and concrete examples.",
+        }[detail]
+        return f"\nDetail level: {detail}. {guidance} Respect the requested word target."
+
     async def run(self, interest: dict[str, Any]) -> int:
         """Run the full pipeline for one interest. Returns the run id."""
         global_cfg = self._settings.get("global", {})
@@ -210,7 +220,7 @@ class Pipeline:
             base_url=global_cfg.get("api_base_url", ""),
             default_model=global_cfg.get("default_model", ""),
         )
-        run_record = self._store.create_run(interest["name"])
+        run_record = self._store.create_run(interest["name"], interest.get("recipient_id", ""))
         run_id: int = run_record["id"]
 
         try:
@@ -256,7 +266,7 @@ class Pipeline:
                         url = entry.get("link", "")
                         if not url:
                             continue
-                        if self._store.article_exists(url):
+                        if self._store.article_exists(url, run_id=run_id):
                             continue
 
                         title = entry.get("title", "Untitled")
@@ -326,7 +336,7 @@ class Pipeline:
                 f"Title: {a['title']}\nSource: {a.get('url', '')}\nBody: {body}"
             )
 
-        system = P.ANALYZE_SYSTEM
+        system = P.ANALYZE_SYSTEM + "\nGroup related coverage only among the supplied articles for this interest. Do not import other interests or sources."
         prompt = (
             P.ANALYZE_USER.format(
                 max_themes=max_themes,
@@ -392,6 +402,7 @@ class Pipeline:
                             theme_description=theme['description'],
                         )
                     )
+                    prompt += self._detail_instruction(interest, "summary")
                     response = await llm.chat_completion(
                         messages=[
                             {"role": "system", "content": P.SUMMARY_SYSTEM},
@@ -423,6 +434,7 @@ class Pipeline:
                             theme_description=theme['description'],
                         )
                     )
+                    script_prompt += self._detail_instruction(interest, "script")
                     script = await llm.chat_completion(
                         messages=[
                             {"role": "system", "content": P.SCRIPT_EN_SYSTEM},
@@ -452,6 +464,7 @@ class Pipeline:
                             theme_description=theme['description'],
                         )
                     )
+                    de_prompt += self._detail_instruction(interest, "script_de")
                     script_de = await llm.chat_completion(
                         messages=[
                             {"role": "system", "content": P.SCRIPT_DE_SYSTEM},
@@ -509,6 +522,7 @@ class Pipeline:
                 )
                 system_content = P.BRIEF_EN_SYSTEM
 
+            prompt += self._detail_instruction(interest, "brief")
             response = await llm.chat_completion(
                 messages=[
                     {"role": "system", "content": system_content},

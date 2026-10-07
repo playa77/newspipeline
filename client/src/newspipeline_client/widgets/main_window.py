@@ -1,7 +1,7 @@
 """Main window: connection bar (tunnel lifecycle + visible state) and the
 three management tabs."""
 
-# version: 0.3.1
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import logging
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QFormLayout,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -26,6 +27,8 @@ from ..api import ApiClient
 from ..profile import Profile
 from ..tunnel import TunnelManager
 from .history_tab import HistoryTab
+from .recipients_tab import RecipientsTab
+from ..workers import submit, show_error_with
 from .interests_tab import InterestsTab
 from .settings_tab import SettingsTab
 
@@ -94,13 +97,19 @@ class MainWindow(QMainWindow):
         self._set_state_style("disconnected")
         bar.addRow("Connection", self.state_label)
         layout.addLayout(bar)
+        self.recipient_combo = QComboBox()
+        self.recipient_combo.addItem("Legacy configuration", "")
+        self.recipient_combo.currentIndexChanged.connect(self._select_recipient)
+        layout.addWidget(self.recipient_combo)
 
         # ---- tabs -------------------------------------------------------------
         self.tabs = QTabWidget()
         self.settings_tab = SettingsTab()
         self.interests_tab = InterestsTab()
         self.history_tab = HistoryTab()
+        self.recipients_tab = RecipientsTab()
         self.tabs.addTab(self.settings_tab, "Global settings")
+        self.tabs.addTab(self.recipients_tab, "Recipients and defaults")
         self.tabs.addTab(self.interests_tab, "Interests")
         self.tabs.addTab(self.history_tab, "Run history")
         self.tabs.setEnabled(False)
@@ -110,6 +119,7 @@ class MainWindow(QMainWindow):
         self.interests_tab.data_changed.connect(self.history_tab.refresh)
         self.interests_tab.triggered.connect(lambda _name: self.history_tab.refresh())
 
+        self.recipients_tab.data_changed.connect(self._refresh_recipients)
         self.setCentralWidget(central)
 
     # ---- connection lifecycle ------------------------------------------------
@@ -147,6 +157,8 @@ class MainWindow(QMainWindow):
             local_port = args[0]
             self.client = ApiClient(f"http://127.0.0.1:{local_port}")
             self.settings_tab.set_client(self.client)
+            self.recipients_tab.set_client(self.client)
+            self._refresh_recipients()
             self.interests_tab.set_client(self.client)
             self.history_tab.set_client(self.client)
             self.tabs.setEnabled(True)
@@ -175,9 +187,35 @@ class MainWindow(QMainWindow):
             self.client.close()
             self.client = None
         self.settings_tab.set_client(None)
+        self.recipients_tab.set_client(None)
         self.interests_tab.set_client(None)
         self.history_tab.set_client(None)
         self.tabs.setEnabled(False)
+
+    def _refresh_recipients(self):
+        if self.client is None:
+            return
+        submit(self.client.list_recipients, self._populate_recipients,
+               show_error_with(self, "Loading recipient selection failed"))
+
+    def _populate_recipients(self, recipients):
+        current = self.recipient_combo.currentData()
+        self.recipient_combo.blockSignals(True)
+        self.recipient_combo.clear()
+        self.recipient_combo.addItem("Legacy configuration", "")
+        for recipient in recipients:
+            self.recipient_combo.addItem(recipient["id"], recipient["id"])
+        index = self.recipient_combo.findData(current)
+        self.recipient_combo.setCurrentIndex(max(0, index))
+        self.recipient_combo.blockSignals(False)
+        self._select_recipient()
+
+    def _select_recipient(self, *_):
+        if self.client is None:
+            return
+        scoped = self.client.for_recipient(self.recipient_combo.currentData() or "")
+        self.interests_tab.set_client(scoped)
+        self.history_tab.set_client(scoped)
 
     def _reset_connection_controls(self) -> None:
         self.host_edit.setEnabled(True)

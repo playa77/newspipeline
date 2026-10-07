@@ -1,6 +1,6 @@
 """Run-history tab — recent runs per interest from GET /api/status."""
 
-# version: 0.3.0
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -53,19 +53,38 @@ class HistoryTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         root.addWidget(self.table, 1)
+        root.addWidget(QLabel("Scheduled deliveries"))
+        self.delivery_table = QTableWidget(0, 5)
+        self.delivery_table.setHorizontalHeaderLabels(["Run", "Due (UTC)", "Delivery status", "Attempts", "Error"])
+        self.delivery_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.delivery_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        root.addWidget(self.delivery_table, 1)
+        retry = QPushButton("Retry selected failed delivery")
+        retry.clicked.connect(self._retry_delivery)
+        root.addWidget(retry)
 
     def set_client(self, client: ApiClient | None) -> None:
         self.client = client
+        self._snapshot = []
+        self.interest_combo.clear()
+        self.table.setRowCount(0)
+        self.delivery_table.setRowCount(0)
         if client is not None:
             self.refresh()
 
     def refresh(self) -> None:
         if self.client is None:
             return
-        submit(self.client.get_status, self._apply,
+        client = self.client
+        submit(client.get_status, lambda data: self._apply(data) if self.client is client else None,
                show_error_with(self, "Loading run history failed"))
 
     def _apply(self, data: dict[str, Any]) -> None:
+        deliveries = data.get("deliveries", [])
+        self.delivery_table.setRowCount(len(deliveries))
+        for row, job in enumerate(deliveries):
+            for col, key in enumerate(("run_id", "due_at", "status", "attempts", "error")):
+                self.delivery_table.setItem(row, col, QTableWidgetItem(str(job.get(key) or "")))
         self._snapshot = data.get("interests", [])
         names = [entry.get("name", "?") for entry in self._snapshot]
         current = self.interest_combo.currentText()
@@ -76,6 +95,15 @@ class HistoryTab(QWidget):
             self.interest_combo.setCurrentText(current)
         self.interest_combo.blockSignals(False)
         self._render_selected()
+
+    def _retry_delivery(self):
+        row = self.delivery_table.currentRow()
+        if self.client is None or row < 0:
+            return
+        run_id = int(self.delivery_table.item(row, 0).text())
+        client = self.client
+        submit(lambda: client.retry_delivery(run_id), lambda _: self.refresh(),
+               show_error_with(self, "Retrying delivery failed"))
 
     def _render_selected(self) -> None:
         index = max(0, self.interest_combo.currentIndex())

@@ -767,3 +767,31 @@ per interest. Live evidence: two runs per interest per day on 2026-09-16, 17 and
   which was proved to fail against the pre-fix code.
 - **Version:** 0.5.1 (a fix). The client distribution is unchanged.
 
+
+
+## 2026-10-07 — D17: recipients, independent delivery, and interest scopes (R1)
+
+Requested multi-recipient configuration and per-interest isolation supersede
+D5's single-user/global-deduplication assumptions. Configuration stays in TOML
+(D3), secrets stay outside the API (G1), and the SSH trust boundary (D7) stays.
+
+- Recipients have immutable ids. Shared defaults, parent chains and sparse
+  overrides are resolved without freezing inherited values. Named interests
+  merge by name; feed lists replace. Invalid parent graphs are rejected.
+- Collection and delivery clocks are separate. Scheduled completed output has
+  a durable job capturing its intended recipient and non-secret delivery
+  settings. Due jobs are processed without requiring an LLM key. Failed sends
+  require explicit retries; interrupted sends recover with at-least-once
+  semantics because SMTP and SQLite cannot commit together.
+- G2 now means URL deduplication **within a recipient/interest across runs**.
+  The existing guard retains its same-scope repeat assertion and adds a
+  different-interest acceptance assertion; it is not disabled or skipped.
+  Explicit scope FKs and normalized theme/article memberships prevent
+  cross-interest grouping. Old ids/content are retained by a transactional
+  migration with foreign-key validation and rollback on corrupt references.
+- Scoped renames retain the D11 database-first/config-second recovery contract;
+  inherited descendant histories update atomically and destination histories
+  cannot be implicitly merged. Active runs/sends block renaming.
+- New recipient CLI/API/client paths coexist with legacy scopes. No deployment,
+  staging, commit, push, or publication is performed by this implementation.
+  Operational details: docs/recipients.md.

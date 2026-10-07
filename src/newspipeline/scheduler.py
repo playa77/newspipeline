@@ -10,11 +10,12 @@ event loop (Flask is sync — D2). Semantics:
   a completed or in-flight run already covers that slot (a restart must not
   repeat a run that happened; D16)
 - startup sweep: orphaned 'running' rows are marked failed (D10, serve only)
-- an interest is "paused" when summary, script and brief are all disabled
+- an interest is "paused" when all four deliverable types are disabled
+- scheduled delivery jobs are drained independently of collection/LLM access
 - per-interest concurrency guard: never two runs of the same interest
 """
 
-# version: 0.5.1
+# version: 0.6.0
 
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from newspipeline import config, delivery
+from newspipeline.recipients import effective_interests, interest_key
 from newspipeline.pipeline import Pipeline
 from newspipeline.store import Store
 
@@ -103,8 +105,8 @@ def find_most_recent_missed(
 
 def is_paused(interest: dict[str, Any]) -> bool:
     """An interest is paused when all deliverable types are disabled."""
-    return not any(
-        interest.get(k) for k in ("enable_summary", "enable_script", "enable_brief")
+    return not interest.get("enabled", True) or not any(
+        interest.get(k) for k in ("enable_summary", "enable_script", "enable_script_de", "enable_brief")
     )
 
 
@@ -124,7 +126,7 @@ class SchedulerThread:
 
     Interests are re-read from settings on every tick so edits made
     through the API take effect without a restart. Runs are keyed by
-    interest name (D5).
+    (recipient id, interest name), with legacy names in the empty scope.
 
     The concurrency guard is two-layered: an in-memory task registry
     (guards within this process) plus `store.is_interest_running` (guards
@@ -151,7 +153,7 @@ class SchedulerThread:
         self._started = False
         # The members below live on the scheduler thread's event loop.
         self._lock: asyncio.Lock | None = None
-        self._running: dict[str, asyncio.Task[None]] = {}
+        self._running: dict[str | tuple[str, str], asyncio.Task[None]] = {}
 
     def __bool__(self) -> bool:
         return self._started
@@ -190,12 +192,12 @@ class SchedulerThread:
                 logger.warning("Scheduler thread did not stop within 15s")
         logger.info("Scheduler thread stopped")
 
-    def trigger_now(self, interest_name: str) -> str:
+    def trigger_now(self, interest_name: str, recipient_id: str = "") -> str:
         """Trigger an immediate run. Returns "" on success, else an error message."""
         if not self._started or self._loop is None:
             return "Scheduler is not running"
         future = asyncio.run_coroutine_threadsafe(
-            self._trigger_now(interest_name), self._loop,
+            self._trigger_now(interest_name, recipient_id), self._loop,
         )
         try:
             return future.result(timeout=30)
@@ -225,6 +227,7 @@ class SchedulerThread:
         # row. Synchronous on purpose: done before _ready is set, so
         # callers of start() can rely on the sweep having happened.
         self._store.sweep_orphaned_runs()
+        self._store.recover_deliveries()
         catch_up = asyncio.create_task(self._run_catch_up())
         checker = asyncio.create_task(self._check_loop())
         self._ready.set()
@@ -239,7 +242,7 @@ class SchedulerThread:
         if self._running:
             logger.info(
                 "Shutdown with %d run(s) still in flight: %s",
-                len(self._running), ", ".join(sorted(self._running)),
+                len(self._running), ", ".join(sorted(map(str, self._running))),
             )
 
     def _tz(self, settings: dict[str, Any]) -> ZoneInfo:
@@ -254,6 +257,13 @@ class SchedulerThread:
         """Wake every 60s and fire interests whose next run is near."""
         while True:
             try:
+                drain = asyncio.create_task(asyncio.to_thread(delivery.deliver_due, self._store))
+                try:
+                    await asyncio.shield(drain)
+                except asyncio.CancelledError:
+                    # Finish the claimed job before Store is closed on shutdown.
+                    await drain
+                    raise
                 await self._check_schedules()
                 await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
             except asyncio.CancelledError:
@@ -265,7 +275,7 @@ class SchedulerThread:
     async def _check_schedules(self) -> None:
         settings = self._get_settings()
         now = datetime.now(self._tz(settings))
-        for interest in settings.get("interests", []):
+        for interest in effective_interests(settings):
             if is_paused(interest):
                 continue
             next_run = compute_next_run_seconds(
@@ -281,7 +291,7 @@ class SchedulerThread:
         await asyncio.sleep(_CATCH_UP_DELAY_SECONDS)
         settings = self._get_settings()
         now = datetime.now(self._tz(settings))
-        for interest in settings.get("interests", []):
+        for interest in effective_interests(settings):
             if is_paused(interest):
                 continue
             missed = find_most_recent_missed(
@@ -292,7 +302,7 @@ class SchedulerThread:
             if missed is None:
                 continue
             name = interest.get("name", "?")
-            covered_by = self._covering_run(name, missed)
+            covered_by = self._covering_run(name, missed, interest.get("recipient_id", ""))
             if covered_by is not None:
                 logger.info(
                     "Catch-up skipped — interest %r already served the %s slot "
@@ -306,7 +316,7 @@ class SchedulerThread:
             )
             await self._launch(settings, interest, reason="catch-up")
 
-    def _covering_run(self, interest_name: str, slot: datetime) -> int | None:
+    def _covering_run(self, interest_name: str, slot: datetime, recipient_id: str = "") -> int | None:
         """Id of the run that already covers ``slot``, or None.
 
         A run started within ``_SLOT_TOLERANCE`` before the slot counts as that
@@ -317,7 +327,7 @@ class SchedulerThread:
         than the single slot in question.
         """
         earliest = slot - _SLOT_TOLERANCE
-        for run in self._store.list_runs(interest_name):
+        for run in self._store.list_runs(interest_name, recipient_id=recipient_id):
             started = _parse_started_at(run.get("started_at"))
             if started is None or started < earliest:
                 continue
@@ -325,10 +335,10 @@ class SchedulerThread:
                 return int(run["id"])
         return None
 
-    async def _trigger_now(self, interest_name: str) -> str:
+    async def _trigger_now(self, interest_name: str, recipient_id: str = "") -> str:
         settings = self._get_settings()
         interest = next(
-            (i for i in settings.get("interests", []) if i.get("name") == interest_name),
+            (i for i in effective_interests(settings, recipient_id) if i.get("name") == interest_name),
             None,
         )
         if interest is None:
@@ -354,12 +364,13 @@ class SchedulerThread:
             return "NEWS_API_KEY is not set — add it to .env first"
         assert self._lock is not None
         async with self._lock:
-            task = self._running.get(name)
+            key = interest_key(interest)
+            task = self._running.get(key)
             if task is not None and not task.done():
                 return f"A pipeline run for {name!r} is already in progress"
-            if self._store.is_interest_running(name):
+            if self._store.is_interest_running(name, interest.get("recipient_id", "")):
                 return f"A pipeline run for {name!r} is already in progress"
-            self._running[name] = asyncio.create_task(
+            self._running[key] = asyncio.create_task(
                 self._run_interest_safe(settings, interest, api_key)
             )
         logger.info("Run launched — interest=%r reason=%s", name, reason)
@@ -391,4 +402,4 @@ class SchedulerThread:
         finally:
             if self._lock is not None:
                 async with self._lock:
-                    self._running.pop(name, None)
+                    self._running.pop(interest_key(interest), None)

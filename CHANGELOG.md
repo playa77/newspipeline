@@ -536,3 +536,19 @@ verification records above. Not tested (no live credentials/servers in this
 environment): live OpenRouter request/response behavior (T3), authenticated
 SMTP delivery — STARTTLS+LOGIN (T2), and visual/browser rendering of the
 settings UI (agent cannot see pages; human browser check pending).
+
+
+## Unreleased — recipient configuration and interest isolation
+
+- Add multiple recipients with shared-default/parent inheritance, sparse
+  per-interest overrides, independent feeds, deliverable word targets and
+  concise/standard/detailed controls in the API and desktop client.
+- Separate collection and per-interest delivery schedules; persist scheduled
+  delivery jobs with startup recovery, visible failures and explicit retries.
+- Migrate global URL uniqueness to explicit recipient/interest scopes;
+  constrain normalized related-content memberships to their own run.
+  Preserve legacy data and stable scope identity through renames.
+- Scope scheduling guards, history, manual CLI runs, email routing and archives
+  by recipient. Keep existing single-recipient configuration/API behavior.
+- Add migration, inheritance, scoped API/database, queue, DST, multi-recipient
+  end-to-end and offscreen desktop regression coverage.
