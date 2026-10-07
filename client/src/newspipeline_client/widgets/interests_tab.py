@@ -8,7 +8,7 @@ discoverable, trigger-now, and
 first-class rename (D11) with a trivial confirm — history is preserved.
 """
 
-# version: 0.6.0
+# version: 0.6.1
 
 from __future__ import annotations
 
@@ -203,6 +203,9 @@ class InterestsTab(QWidget):
         self.inherit_btn = QPushButton("Use inherited settings for this interest")
         self.inherit_btn.clicked.connect(self._inherit)
         delivery_layout.addRow(self.inherit_btn)
+        self.inherit_field_btn = QPushButton("Restore inheritance for one setting…")
+        self.inherit_field_btn.clicked.connect(self._inherit_field)
+        delivery_layout.addRow(self.inherit_field_btn)
         right.addWidget(delivery_box)
 
         feeds_box = QGroupBox("Feeds")
@@ -295,6 +298,7 @@ class InterestsTab(QWidget):
             return
         self.name_label.setText(interest["name"])
         self.inherit_btn.setVisible(bool(self.client and self.client.recipient_id))
+        self.inherit_field_btn.setVisible(bool(self.client and self.client.recipient_id))
         for kind, combo in self.detail_levels.items():
             combo.setCurrentText(interest.get(f"{kind}_detail", "standard"))
         schedule = interest.get("delivery_schedule") or {}
@@ -400,6 +404,28 @@ class InterestsTab(QWidget):
         submit(reset, lambda _: (self.refresh(), self.data_changed.emit()),
                show_error_with(self, "Restoring inherited settings failed"))
 
+    def _inherit_field(self) -> None:
+        name = self._require_current()
+        if name is None or self.client is None or not self.client.recipient_id:
+            return
+        client = self.client
+
+        def choose(data):
+            if self.client is not client or self._current_name != name:
+                return
+            fields = sorted(k for k in data["overrides"] if k != "name")
+            if not fields:
+                QMessageBox.information(self, "Inherited settings", "This interest has no local overrides.")
+                return
+            field, ok = QInputDialog.getItem(self, "Restore inheritance", "Local override to remove:", fields, editable=False)
+            if ok:
+                submit(lambda: client.update_interest(name, {"inherit": [field]}),
+                       lambda _: (self.refresh(), self.data_changed.emit()),
+                       show_error_with(self, "Restoring inherited setting failed"))
+
+        submit(lambda: client.get_interest(name), choose,
+               show_error_with(self, "Loading local overrides failed"))
+
     def _new_interest(self) -> None:
         if self.client is None:
             return
@@ -427,9 +453,11 @@ class InterestsTab(QWidget):
             return
         answer = QMessageBox.question(
             self, "Delete interest",
-            f"Delete interest {name!r}?\n\nNote: its run history stays in "
-            "the server database under this name but becomes orphaned "
-            "(only renaming preserves history).",
+            (f"Exclude interest {name!r} from this recipient?\n\n"
+             "History and queued deliveries are retained. Restore it using the complete "
+             "recipient configuration editor or New interest with the same name.")
+            if self.client.recipient_id else
+            f"Delete interest {name!r}?\n\nHistory and queued deliveries are retained.",
         )
         if answer != QMessageBox.Yes:
             return

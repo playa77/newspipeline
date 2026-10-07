@@ -795,3 +795,19 @@ D5's single-user/global-deduplication assumptions. Configuration stays in TOML
 - New recipient CLI/API/client paths coexist with legacy scopes. No deployment,
   staging, commit, push, or publication is performed by this implementation.
   Operational details: docs/recipients.md.
+
+## 2026-10-07 — D18: complete desktop recipient administration (R1/R2/R3)
+
+- R1: The desktop is an administration client for all recipients, not a consumer
+  view. The earlier recipient implementation shipped stale client documentation
+  and version metadata and lacked shared-template editing and selective resets.
+- R2: Keep the standard sparse settings form; add a complete sparse JSON editor
+  using the existing validated replacement API for named templates, disabled
+  subscriptions and settings absent from the form. This exposes the full server
+  configuration without copying effective settings into inherited overrides.
+  Add individual interest override resets alongside the existing complete reset.
+- R3: Test the Qt editor through ApiClient into the real Flask API with isolated
+  configuration and SQLite; verify shared propagation, independent overrides and
+  disabled subscription restoration. Cover stale reconnect responses and failed
+  delivery retry gating. Document the advanced editor and separate desktop
+  reinstall. Live visual/SSH checks remain manual; no deployment is performed.

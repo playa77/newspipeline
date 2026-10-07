@@ -9,7 +9,7 @@ client** GUI over an SSH tunnel.
 Python 3.12+, no Docker, no database server, no build step.
 
 > Status: **0.5.1** — fully implemented; guard-test suite green
-> (`pytest tests/` — 209 tests, ~60 s; five additional client tests). Decisions and invariants:
+> (`pytest tests/`; additional offscreen client tests in `client/tests/`). Decisions and invariants:
 > [DECISIONS.md](DECISIONS.md);
 > changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
 > [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -143,6 +143,12 @@ on exit or crash, and shows connection state prominently. Your connection
 profile (host, user, port — no secrets) persists under
 `~/.config/newspipeline-client/profile.json`; authentication is your
 normal SSH key.
+
+The desktop administration client manages all recipients from one connection.
+Use **Recipients and defaults** for recipient inheritance and shared templates;
+the recipient selector scopes **Interests** and **Run history**. See the
+[client guide](client/README.md) for configuration editing and the upgrade to
+client 0.6.1.
 
 **SSH key requirement.** The tunnel runs `ssh` with `BatchMode=yes`, so
 only key-based auth works — password prompts are deliberately disabled to

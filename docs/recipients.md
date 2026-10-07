@@ -162,9 +162,15 @@ overrides mean inherit. The recipient selector controls the **Interests** and
 fields inherited; **Use inherited settings for this interest** clears local
 setting/feed overrides. Collection and delivery schedules have separate
 controls. The history tab shows scheduled jobs and provides explicit retries.
-Shared named interest templates can be supplied through the shared-defaults API
-or TOML; the desktop manages named interest templates by using a recipient as a
-parent and editing its interests.
+The **Restore inheritance for one setting…** action removes a selected local
+override without discarding other preferences. The **Edit complete configuration
+and interest templates…** editor in **Recipients and defaults** manages shared
+named templates, feed lists, disabled subscriptions and every validated setting
+through sparse JSON. Select Shared defaults or a recipient before opening it.
+Its save replaces that selected raw configuration; standard form saves preserve
+unexposed fields. Set `enabled = true` in a disabled subscription to restore it,
+or recreate the same interest name from Interests. See the
+[client administration guide](../client/README.md) for a worked example.
 
 ```bash
 newspipeline run --recipient alice --interest Energy
