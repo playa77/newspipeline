@@ -136,6 +136,20 @@ re-litigated)" block. Listed here for visibility; each stays closed unless re-op
   concurrent `newspipeline run` processes could race `settings.toml`. Evidence: same block.
   Repair: decide — accept permanently (note in DECISIONS.md) or widen the mutation lock.
   Owner: **operator**
+- **OI-24** — **(opened 2026-10-08, D20/D19/D21) Netiquette across the FULL run is
+  partially implemented: politeness spacing/retry/UA exists per scrape run (D19), but
+  interests run CONCURRENTLY at the scheduler level, so at 04:00 (or a post-restart
+  catch-up burst) up to 6 parallel request streams hit servers simultaneously, with
+  combined outbound rate possibly far above the polite per-run 2 s gap.
+  Evidence: live smoke run of 2026-10-08 — 6 "Pipeline run starting" lines all at
+  13:47:30, 6 distinct hosts being fetched in the same second (journalctl).
+  Scope to decide and implement (operator): serialize interest RUNS (one at a
+  time), or share ONE PolitenessLayer across all concurrent runs (per-host or
+  global gap), or stagger interest start times; plus verify politeness covers
+  every outbound request class (Reddit 403s still happen per D19 wanted UA
+  fallback?), confirm the 2 s gap applies to retry paths too, and confirm
+  politeness applies to article fetches identically to feed fetches.
+  Repair options documented (not chosen yet). Owner: **agent + operator**
 
 ### Class 6 — tooling/hygiene
 

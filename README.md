@@ -8,10 +8,11 @@ client** GUI over an SSH tunnel.
 
 Python 3.12+, no Docker, no database server, no build step.
 
-> Status: **0.5.1** — fully implemented; guard-test suite green
-> (`pytest tests/`; additional offscreen client tests in `client/tests/`). Decisions and invariants:
+> Status: **0.5.2 (in progress)** — fully implemented; guard-test suite green
+> (222 tests, `pytest tests/`; additional offscreen client tests in
+> `client/tests/`). Decisions and invariants:
 > [DECISIONS.md](DECISIONS.md);
-> changes: [CHANGELOG.md](CHANGELOG.md); VPS deployment:
+> changes: [CHANGELOG.md](CHANGELOG.md); this-host deployment:
 > [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Architecture
@@ -32,7 +33,11 @@ browser-originated requests on the machines themselves.
 
 - Multiple **interests** (topics), each with its own feeds, schedule,
   deliverable toggles, and delivery modes
-- Pipeline stages: **scrape** (RSS + full-article extraction) →
+- Pipeline stages: **scrape** (RSS + full-article extraction; outbounds are
+  rate-limited by a politeness layer — 2 s minimum request gap, bounded
+  transient retry with capped `Retry-After` handling, browser User-Agent with
+  a single plain-identity fallback for browser-rejecting sources —
+  D19 in DECISIONS.md) →
   **analyze** (LLM theme identification) → **generate** (summary,
   EN/DE YouTube scripts) → **brief** (daily synthesis)
 - **Report documents**: every generate/brief answer is stored as a document
@@ -91,7 +96,7 @@ Two files on the server, strictly separated:
 All paths resolve relative to the checkout. Set
 `NEWSPIPELINE_HOME=/some/dir` to relocate them — the variable must be set
 for every process that touches state (`run`, `serve`, the systemd unit).
-See [VPS deployment](#vps-deployment) for the recommended layout.
+See [Deployment on this host](#deployment-on-this-host) for the live layout.
 
 Configure through the desktop client, or edit `config/settings.toml`
 directly (see `config/settings.example.toml` for a fully commented
@@ -150,22 +155,23 @@ the recipient selector scopes **Interests** and **Run history**. See the
 [client guide](client/README.md) for configuration editing and the upgrade to
 client 0.6.1.
 
-**SSH key requirement.** The tunnel runs `ssh` with `BatchMode=yes`, so
-only key-based auth works — password prompts are deliberately disabled to
-fail fast instead of hanging. Before first connect, install your key on
-the server account:
+The client's tunnel spawn runs `ssh` with `BatchMode=yes`, which cannot
+prompt for a password even when the server allows one. For
+`devops@37.60.240.152` password authentication stays enabled in any case
+(operator requirement — the account is *not* to be switched to key-only);
+two supported ways to use the client with that profile:
 
-```bash
-ssh-keygen -t ed25519             # skip if you already have a key
-ssh-copy-id <user>@<server-host>
-ssh -o BatchMode=yes <user>@<server-host> 'echo OK'   # must print OK
-```
+1. Manual tunnel: run `ssh -N -L 8421:127.0.0.1:8421 devops@37.60.240.152`
+   yourself (password prompt works), then point the client at
+   `http://127.0.0.1:8421` with its tunnel mode off.
+2. Supervised key: additionally install a desktop SSH key
+   (`ssh-copy-id devops@37.60.240.152`) so `BatchMode` succeeds. This adds
+   a key alongside the password; it does **not** disable password
+   authentication.
 
-If connect fails with `Permission denied (publickey,password,...)`, the
-key for that user is missing or not accepted — re-run the steps above.
-(Errors like this are shown in the GUI without crashing: tunnel callbacks
-are marshalled onto the GUI thread, so an auth failure surfaces as an
-error dialog rather than a segfault.)
+(Auth errors are shown in the GUI without crashing: tunnel callbacks are
+marshalled onto the GUI thread, so a failure surfaces as an error dialog
+rather than a segfault.)
 
 Tabs mirror the old web UI: global settings, interests (CRUD, feeds,
 schedule, deliverable toggles, delivery modes, recipient override, paused
@@ -185,56 +191,47 @@ Runs are linked to interests **by name**. Deleting an interest still
 orphans its history — but **renaming preserves it end-to-end** (runs rows
 are repointed atomically-first; see DECISIONS.md D11).
 
-## VPS deployment
+## Deployment on this host
 
-The project always runs as a **dedicated, unprivileged system user**
-`newspipeline` — never under another user's account. Full step-by-step
-procedure (user creation, git push path, venv, state, systemd): see
+The live install runs on **this machine** under the existing `devops`
+account — no dedicated system user (operator decision, D21; supersedes the
+0.5.x VPS deployment under a dedicated `newspipeline` user). Full
+step-by-step procedure (checkout, venv, state, systemd, upgrades): see
 [DEPLOYMENT.md](DEPLOYMENT.md). The layout in brief:
 
 ```bash
-sudo useradd -r -m -d /var/lib/newspipeline -s /usr/sbin/nologin newspipeline
-sudo mkdir -p /var/lib/newspipeline/{config,data,output}
-sudo cp settings.example.toml /var/lib/newspipeline/config/settings.toml
-sudoedit /var/lib/newspipeline/.env        # NEWS_API_KEY (+ NEWS_SMTP_PASSWORD); chmod 600
+~/newspipeline            # checkout — also NEWSPIPELINE_HOME
+├── .venv/                # CPython 3.12 via uv; pip install -e ".[dev]"
+├── config/settings.toml  # non-secret configuration
+├── .env                  # secrets (NEWS_API_KEY, NEWS_SMTP_PASSWORD), 0600
+├── data/news.db          # SQLite state
+└── output/               # server-side archive
 ```
 
-Install the code (e.g. `/opt/newspipeline` checkout + its own venv), then:
+Install the systemd unit (it ships matching `User=devops`,
+`NEWSPIPELINE_HOME=/home/devops/newspipeline` and
+`ReadWritePaths` for the checkout; `ProtectHome` stays off because the venv
+lives in the home directory):
 
 ```bash
 sudo cp deploy/newspipeline.service /etc/systemd/system/
-$EDITOR /etc/systemd/system/newspipeline.service   # adjust ExecStart/User paths
 sudo systemctl daemon-reload
 sudo systemctl enable --now newspipeline.service
 journalctl -u newspipeline -f
 ```
 
-The unit uses `NEWSPIPELINE_HOME=/var/lib/newspipeline`, restarts always
-(`Restart=always`, `RestartSec=5` — a fresh start sweeps any interrupted
-runs), and ships reasonable hardening (`ProtectSystem=strict`,
-`ProtectHome=true`, `PrivateTmp=true`, …).
+The unit restarts always (`Restart=always`, `RestartSec=5` — a fresh start
+sweeps any interrupted runs) and keeps the sandbox hardening
+(`ProtectSystem=strict`, `PrivateTmp=true`, …). Code arrives via
+`git pull` + the hermetic test gate; see DEPLOYMENT.md **Upgrades**.
 
-### sshd hardening for the management tunnel
+### sshd configuration (informational — no change required)
 
-Disable password authentication for the server account (key-only SSH):
-
-```bash
-# /etc/ssh/sshd_config:
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-```
-
-Optionally restrict the client's deploy key to exactly this forwarding
-use, in `/home/<user>/.ssh/authorized_keys` (or
-`/var/lib/newspipeline/.ssh/authorized_keys`):
-
-```
-restrict,permitopen="127.0.0.1:8421" ssh-ed25519 AAAA... client@desktop
-```
-
-`restrict` disables pty/agent/X11/port forwarding beyond the single
-permitted open; `permitopen="127.0.0.1:8421"` allows only the API's local
-forward. Reload sshd afterwards: `sudo systemctl reload ssh`.
+Password authentication for `devops@37.60.240.152` **stays enabled**: the
+account must not be switched to key-only operation (operator requirement).
+The API's loopback-only bind remains the security boundary for the
+management path; no `PasswordAuthentication no` or similar sshd
+restrictions are part of this deployment.
 
 ## Gmail relay
 
@@ -282,22 +279,25 @@ therefore mocked in tests but must be verified manually once:
 - [x] **Live Gmail inbox delivery** (2026-09-18, operator-witnessed on the
       live install): the brief and theme emails arrive in the personal
       (receiver) inbox, including the 0.5.0 HTML-first layout.
-- [ ] **First-send security approval**: on the first send from the VPS
-      IP, approve Google's security review at myaccount.google.com/security
-      and confirm subsequent sends succeed without intervention.
-- [x] **VPS deployment** (2026-09-18, operator-witnessed on the live
-      install): the unit starts and serves, runs complete, and
-      `systemctl stop` exits cleanly.
+- [ ] **First-send security approval**: on the first send from this
+      host's IP, approve Google's security review at
+      myaccount.google.com/security and confirm subsequent sends succeed
+      without intervention.
+- [ ] **This-host deployment** (redo for the new layout, D21): the unit
+      starts and serves under `devops`, runs complete, and `systemctl stop`
+      exits cleanly. (The 2026-09-18 VPS verification covered the old
+      dedicated-user layout, now superseded.)
 - [ ] **Crash recovery on the live install**: `kill -9` mid-run leaves the
       run orphaned, the row is swept at the next serve startup on the real
       host, and the interest reruns (unit-level behaviour is covered by G9;
-      this row is the on-host confirmation).
+      this row is the on-host confirmation for the current install).
 - [ ] **Tunnel end-to-end**: from the desktop, connect via the client and
       exercise every tab; verify direct access to port 8421 from outside
       is refused (loopback bind only).
 
-Ticked rows were verified by the operator against the live install on
-2026-09-18; the unticked rows still need their first manual pass.
+The 2026-09-18 ticked rows were verified on the previous VPS install; with
+the move to this host (D21) every checklist row needs its first manual pass
+against the current install.
 
 Project decisions and invariants: [DECISIONS.md](DECISIONS.md).
 Deployment: [DEPLOYMENT.md](DEPLOYMENT.md). Changes:

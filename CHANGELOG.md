@@ -569,3 +569,24 @@ settings UI (agent cannot see pages; human browser check pending).
 - Validation: 219 server/client tests pass, including all 10 offscreen client
   tests. Local fixture socket access is required in the execution environment.
   Visual desktop and live SSH checks remain manual.
+
+## 0.5.2 — 2026-10-08 (in progress, unreleased)
+
+### Added
+
+- **Scraper politeness layer** (`newspipeline/politeness.py`, wired into
+  `pipeline._scrape`): a shared minimum-gap schedule for all outbound requests
+  (first request immediate, every later one held until 2.0 s after the previous
+  request began), bounded transient retry (429/5xx + network errors; up to 3
+  retries, exponential delay capped at 30 s; a `Retry-After` suggestion is
+  honored in place of the computed delay, capped at 60 s), and a browser
+  User-Agent on every request with exactly one plain-identity fallback for
+  browser-rejecting sources (observed: nonstandard 419), remembered per host.
+  Exhausted retries surface into the existing log-and-skip feed behavior.
+  Guard tests: `tests/test_politeness.py`. Suite: 209 → 222 passed.
+
+- **Known gap (todo, OI-24/D22)**: the politeness layer bounds request
+  rate *within* a scrape run; the scheduler still launches all due
+  interests concurrently at 04:00 / catch-up, so the machine's combined
+  outbound burst is up to 6 parallel 2 s-gap streams. Serialization or a
+  shared cross-interest schedule is an open work item (DECISIONS.md D22).

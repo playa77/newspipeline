@@ -12,7 +12,7 @@ Python 3.12+, src layout. No linter/formatter/typechecker configured;
 ```bash
 source .venv/bin/activate
 pip install -e ".[dev]"        # server + dev deps (client: pip install ./client)
-pytest tests/ -v               # full suite — green and fully hermetic (~60 s, 209 tests)
+pytest tests/ -v               # full suite — green and fully hermetic (~95 s, 222 tests)
 pytest tests/test_rename_history.py -v   # single guard file
 QT_QPA_PLATFORM=offscreen pytest client/tests/ -v  # desktop/API checks (client and server installed)
 ```
@@ -84,5 +84,5 @@ App entry point (`newspipeline.cli`):
 - Process docs are part of the workflow: append decisions to `DECISIONS.md`
   as they are made (R1/R2/R3 tagged), append changes to `CHANGELOG.md`,
   update `README.md` when behavior changes, and keep `DEPLOYMENT.md` current
-  (deployments always use the dedicated `newspipeline` user, never another
-  user's account).
+  (the live install runs on this host under the existing `devops` account,
+  D21 — no dedicated service user, and password auth stays enabled).

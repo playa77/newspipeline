@@ -1,120 +1,77 @@
-# DEPLOYMENT.md — newspipeline on a fresh VPS
+# DEPLOYMENT.md — newspipeline on THIS host (vmd192484 / 37.60.240.152)
 
-Deployment procedure for a **dedicated newspipeline install**: the project
-always runs under its own user `newspipeline`. Never reuse another user's
-account for this project — the service account, state
-directory, checkout, and SSH access all belong to `newspipeline`. On a host
-that already runs other stacks (the shared VPS), the two stay fully
-separate: this project owns no host ports, other stacks keep 80/443.
+Deployment for the **single-host install**: the project runs on this box
+under the existing `devops` account — there is **no dedicated
+`newspipeline` user** (D21). The checkout, the venv and all state live under
+`/home/devops/newspipeline`; the JSON API binds loopback only and is reached
+from the desktop via SSH tunnel.
 
-**Dev-phase philosophy: low friction first.** During development the
-`newspipeline` account is a normal, fully usable user — interactive SSH,
-SFTP, a real shell. No OS/account hardening (nologin shells, key-only SSH,
-restricted authorized_keys) at this stage; hardening is a deliberate later
-phase, only when development stabilizes. The application's own security
-model (loopback API + SSH tunnel, secrets in `.env` only) is unchanged by
-this — it is part of the app, not account hardening.
+> Historical note: earlier revisions (0.5.x) deployed on a VPS under a
+> dedicated `newspipeline` user with state in `/var/lib/newspipeline` and a
+> bare-repo push path. That model was superseded on 2026-10-08 (D21,
+> operator decision): one machine, existing account, GitHub checkout. The
+> host rows below now describe **this** machine.
 
-## Host (reference: the current VPS)
+## Host (verified live, 2026-10-08)
 
 | What | Value |
 |---|---|
-| Public IP | `37.60.240.152` |
-| OS | Ubuntu 24.04.4 LTS, Python 3.12 |
-| Sizing | 6 vCPU / 12 GB RAM / 96 GB SSD |
-| User | `newspipeline` (dedicated to this project, full login access during dev) |
+| Hostname / public IP | `vmd192484` / `37.60.240.152` |
+| OS | Ubuntu 26.04.1 LTS |
+| Accounts | `devops` (sudo-capable owner of this install; system Python 3.14) |
+| Python for the app | CPython **3.12** venv via uv (`~/newspipeline/.venv`) — the repo requires >=3.12 and nothing in it runs on a bare system Python |
 | Domain | none needed (loopback API + SSH tunnel) |
 
-## 1. Create the dedicated user
+## 1. Checkout + venv (as `devops`)
 
 ```bash
-sudo useradd -m -d /var/lib/newspipeline -s /bin/bash newspipeline
-sudo passwd newspipeline
-sudo mkdir -p /opt/newspipeline /srv/git
-sudo chown newspipeline:newspipeline /opt/newspipeline /srv/git
+cd ~
+git clone https://github.com/playa77/newspipeline   # or: git pull in an existing checkout
+cd newspipeline
+uv venv --python 3.12 .venv
+uv pip install -e ".[dev]" --python .venv/bin/python
+.venv/bin/newspipeline --version                    # sanity: CLI on PATH of the venv
+.venv/bin/python -m pytest tests/ -q                # gate: hermetic suite must be green
 ```
 
-`-m` = home at `/var/lib/newspipeline`, which is also `NEWSPIPELINE_HOME`
-(all state lives there). `/bin/bash` gives a fully usable interactive
-account — log in as `newspipeline` directly; no `sudo -u` indirection is
-needed except where the doc says `sudo` (root-only actions like systemd and
-package installs).
+Code changes are pushed to GitHub and pulled here; there is no bare-repo
+push path on this host.
 
-## 2. Git delivery path (private repo)
+## 2. State layout (NEWSPIPELINE_HOME = the checkout)
 
-The repo is private, so the VPS cannot clone from GitHub. SSH in as
-`newspipeline` and set up a bare repo with a `post-receive` hook that
-force-checks out `main` to `/opt/newspipeline`:
+All state lives under `/home/devops/newspipeline`:
+
+- `config/settings.toml` — pipeline config (reference: `config/settings.example.toml`)
+- `.env` — **secrets: `NEWS_API_KEY`, `NEWS_SMTP_PASSWORD`** (`0600`,
+  git-ignored; nothing else stores them — there is no secret-setting API
+  endpoint by design, G1)
+- `data/news.db` — SQLite (runs + articles)
+- `output/` — generated briefs
 
 ```bash
-ssh newspipeline@37.60.240.152          # interactive login works (dev phase)
-git init --bare /srv/git/newspipeline.git
-cat > /srv/git/newspipeline.git/hooks/post-receive <<'EOF'
-#!/bin/sh
-git --work-tree=/opt/newspipeline --git-dir=/srv/git/newspipeline.git checkout -f main
-EOF
-chmod +x /srv/git/newspipeline.git/hooks/post-receive
-
-# silence git's ownership check for the hook's user (once):
-git config --global --add safe.directory /srv/git/newspipeline.git
-git config --global --add safe.directory /opt/newspipeline
+newspipeline init          # first time only: creates settings.toml, data/, .env
+chmod 600 .env             # init already creates it 0600; verify if recreated
+$EDITOR .env               # secrets — never in settings.toml, never committed
+$EDITOR config/settings.toml
 ```
 
-From the dev machine (a bare push would prompt — sshpass is mandatory; the
-password lives in the operator's private notes, never in this repo):
+## 3. systemd service
 
 ```bash
-git remote add vps newspipeline@37.60.240.152:/srv/git/newspipeline.git  # first time
-SSHPASS='<newspipeline ssh password>' GIT_SSH_COMMAND="sshpass -e ssh" git push vps main
-```
-
-## 3. Install code + venv
-
-```bash
-ssh newspipeline@37.60.240.152
-sudo apt install -y python3.12-venv        # sudo-capable during dev
-cd /opt/newspipeline
-python3.12 -m venv .venv
-/opt/newspipeline/.venv/bin/pip install /opt/newspipeline
-```
-
-## 4. State layout (NEWSPIPELINE_HOME)
-
-Owned by user `newspipeline`:
-
-- `/var/lib/newspipeline/config/settings.toml` — pipeline config (copy
-  `config/settings.example.toml` from the checkout as the starting point)
-- `/var/lib/newspipeline/.env` — **secrets: `NEWS_API_KEY`,
-  `NEWS_SMTP_PASSWORD`** (created by the operator, 0600; nothing else
-  stores them — there is no secret-setting API endpoint by design, G1)
-- `/var/lib/newspipeline/data/news.db` — SQLite (runs + articles)
-- `/var/lib/newspipeline/output/` — generated briefs
-
-```bash
-cp /opt/newspipeline/config/settings.example.toml \
-   /var/lib/newspipeline/config/settings.toml
-cp /opt/newspipeline/.env.example /var/lib/newspipeline/.env
-chmod 600 /var/lib/newspipeline/.env
-$EDITOR /var/lib/newspipeline/.env           # fill in real secrets
-$EDITOR /var/lib/newspipeline/config/settings.toml   # real feeds/interests
-```
-
-## 5. systemd service
-
-```bash
-sudo cp /opt/newspipeline/deploy/newspipeline.service /etc/systemd/system/
+sudo cp deploy/newspipeline.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now newspipeline.service
 journalctl -u newspipeline -f
 ```
 
-The unit ships with `User=newspipeline`,
-`Environment=NEWSPIPELINE_HOME=/var/lib/newspipeline`, sandbox options
-(`ProtectSystem=strict`, `ReadWritePaths=/var/lib/newspipeline`, …) and
-`Restart=always` — no edits needed when the standard layout is used.
-`systemctl stop` sends SIGTERM; the CLI shuts the scheduler down cleanly.
+The unit (`deploy/newspipeline.service`, D21) runs as `User=devops` with
+`NEWSPIPELINE_HOME=/home/devops/newspipeline`, `WorkingDirectory` at the
+checkout, `Restart=always` (a fresh start sweeps interrupted runs, D10) and
+sandbox options (`ProtectSystem=strict`, `ReadWritePaths` for the checkout,
+`PrivateTmp`, …). `ProtectHome` stays off because the home directory holds
+the venv being executed.
 
-Sanity check, on the VPS:
+Sanity check, on the host:
 
 ```bash
 curl -fsS http://127.0.0.1:8421/api/interests
@@ -126,22 +83,26 @@ via SSH tunnel (the security model; never expose it).
 ## Access from the desktop
 
 ```bash
-ssh -N -L 8421:127.0.0.1:8421 newspipeline@37.60.240.152
+ssh -N -L 8421:127.0.0.1:8421 devops@37.60.240.152
 # then point newspipeline-client at http://127.0.0.1:8421
 ```
 
 The client does this itself; its connection profile is
-host `37.60.240.152`, user `newspipeline`, port 8421. The same account
-accepts interactive SSH/SFTP for dev work — that is intentional during the
-dev phase.
+host `37.60.240.152`, user `devops`, port 8421. Password authentication
+stays enabled for this account (operator requirement — no key-only
+switch); either run the tunnel manually (`ssh -N -L
+8421:127.0.0.1:8421 devops@37.60.240.152`, password prompt works) or give
+the client a supplementary desktop key via `ssh-copy-id devops@37.60.240.152`
+(adding a key does not disable password auth; the client's `BatchMode`
+spawn cannot prompt for a password itself).
 
-## Day-to-day commands (on the VPS)
+## Day-to-day commands (on the host)
 
 ```bash
 systemctl status newspipeline        # stack status (Type=simple, Restart=always)
 journalctl -u newspipeline -f        # live logs (ISO 8601 timestamps)
 sudo systemctl restart newspipeline  # needed after editing .env
-curl -fsS http://127.0.0.1:8421/api/interests   # sanity check, on the VPS
+curl -fsS http://127.0.0.1:8421/api/interests   # sanity check, on the host
 ```
 
 `config/settings.toml` is re-read every scheduler tick — editing it needs no
@@ -150,52 +111,38 @@ restart. `.env` changes need a restart.
 ## Upgrades
 
 ```bash
-# on the dev machine:
-SSHPASS='<newspipeline ssh password>' GIT_SSH_COMMAND="sshpass -e ssh" git push vps main
-
-# on the VPS — only needed when dependencies changed:
-/opt/newspipeline/.venv/bin/pip install /opt/newspipeline
-sudo systemctl restart newspipeline
+cd ~/newspipeline
+git pull                            # code changes arrive via GitHub
+.venv/bin/python -m pytest tests/ -q    # gate before restarting
+sudo systemctl restart newspipeline    # only when the code (not just config) changed
+# venv deps need attention only when pyproject.toml changed:
+uv pip install -e ".[dev]" --python .venv/bin/python
 ```
-
-## Later: hardening (deliberately NOT part of dev setup)
-
-When development stabilizes, candidates in rough order of value: switch the
-desktop client and git remote to SSH key auth, then `PasswordAuthentication no`
-in `/etc/ssh/sshd_config`; keep the interactive shell (a `nologin` shell
-would break this dev workflow, so only revisit if the account ever stops
-needing interactive use); optional `restrict,permitopen="127.0.0.1:8421"`
-on the client's deploy key (see README.md). None of this is needed for a
-working dev install.
 
 ## Backup (suggested, not yet configured)
 
-newspipeline state is self-contained in `/var/lib/newspipeline`. Add a
-nightly cron entry on the VPS backing it up (news.db + settings.toml +
-.env), e.g. an SQLite `VACUUM INTO` or a file copy after `systemctl stop`.
-Keep the backup owned by root or `newspipeline`, never world-readable
-(it contains `.env`).
+All state is self-contained under `/home/devops/newspipeline` (`data/news.db`,
+`config/settings.toml`, `.env`, `output/`). A nightly copy of those paths is
+sufficient; the backup must not be world-readable (it contains `.env`).
 
 ## Notes
 
-- State must stay under `NEWSPIPELINE_HOME`; the unit's sandbox enforces it.
+- State must stay under `NEWSPIPELINE_HOME`; the unit's
+  `ReadWritePaths` enforces the write side of that.
 - Renames go exclusively through `POST /api/interests/<name>/rename`; never
   edit interest names in settings.toml directly.
-- Two pre-existing failed units on the shared host (`cloud-init.service`,
-  `systemd-networkd-wait-online.service`) are unrelated noise.
 - This file is safe to commit — no secrets here. Operator credentials live
   in private notes outside the repo.
-
 
 ## Recipient configuration and scheduled-delivery upgrade
 
 The recipient/interest scope migration runs automatically when Store opens.
 Stop the service and make a consistent SQLite backup before upgrading the
-code, then start the service as the existing dedicated `newspipeline` user.
-Migration preserves ids and content and rolls back invalid foreign keys; do
-not bypass a migration failure. The new schema is not compatible with an old
-server binary: rollback requires restoring the pre-upgrade database backup.
-No extra service or system account is needed.
+code, then start the service again (as `devops`). Migration preserves ids
+and content and rolls back invalid foreign keys; do not bypass a migration
+failure. The new schema is not compatible with an old server binary:
+rollback requires restoring the pre-upgrade database backup. No extra
+service or system account is needed.
 
 Configure recipients and inherited defaults in settings.toml or through the
 SSH-tunneled API/client. Existing legacy configuration is supported. Keep a
@@ -204,8 +151,8 @@ output. Inspect delivery status in the client's Run history or
 `GET /api/deliveries?recipient=<id>`; failed jobs require explicit retries.
 Interrupted sends recover on restart and can repeat emails in the SMTP/SQLite
 crash window. Recipient archives are under `output/recipients/<id>/` (relative
-to NEWSPIPELINE_HOME unless output_dir is absolute); ensure the dedicated
-service user retains write access. Details and API contracts:
+to NEWSPIPELINE_HOME unless output_dir is absolute); ensure the service user
+(`devops`) retains write access. Details and API contracts:
 [Recipients and delivery](docs/recipients.md).
 
 Reinstall the desktop distribution separately after this upgrade:
