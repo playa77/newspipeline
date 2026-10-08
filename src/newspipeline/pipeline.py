@@ -19,7 +19,7 @@ Delivery (email / local file) happens after the pipeline, driven by the
 interest's `delivery` list — see emailer.py and fileout.py (WP5).
 """
 
-# version: 0.6.0
+# version: 0.7.0
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ import httpx
 import trafilatura
 
 from newspipeline.llm import LLMClient
+from newspipeline.politeness import PolitenessLayer
 from newspipeline import compose
 from newspipeline import prompts as P
 from newspipeline.document import Document
@@ -251,6 +252,11 @@ class Pipeline:
             timeout=httpx.Timeout(float(timeout)),
             follow_redirects=True,
         ) as http:
+            # Politeness layer: shared minimum-gap schedule, bounded transient
+            # retry, browser identity with single plain-identity fallback
+            # (newspipeline/politeness.py). One layer per scrape run → the
+            # spacing spans the feed fetch and every article fetch.
+            polite = PolitenessLayer()
             for feed in feeds:
                 try:
                     # The fetch goes through the timed httpx client below —
@@ -260,7 +266,7 @@ class Pipeline:
                     # process shutdown. Only XML parsing is offloaded to a
                     # thread so the scheduler loop keeps ticking; feeds are
                     # still processed strictly sequentially.
-                    resp = await http.get(feed["url"])
+                    resp = await polite.request(http, feed["url"])
                     parsed = await asyncio.to_thread(feedparser.parse, resp.content)
                     for entry in parsed.entries[:20]:
                         url = entry.get("link", "")
@@ -275,7 +281,7 @@ class Pipeline:
                         content = None
                         content_status = "excerpt"
                         try:
-                            resp = await http.get(url)
+                            resp = await polite.request(http, url)
                             # trafilatura is CPU-bound parsing; keep it off
                             # the event loop for the same reason as above.
                             content = await asyncio.to_thread(

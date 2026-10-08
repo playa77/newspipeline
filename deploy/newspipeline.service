@@ -1,14 +1,14 @@
-# newspipeline systemd *system* service — headless JSON API + scheduler (0.5.0).
+# newspipeline systemd *system* service — headless JSON API + scheduler.
 #
-# State lives under NEWSPIPELINE_HOME (suggested: /var/lib/newspipeline):
-#   /var/lib/newspipeline/config/settings.toml
-#   /var/lib/newspipeline/.env            (secrets; owner root or the service user, 0600)
-#   /var/lib/newspipeline/data/news.db
-#   /var/lib/newspipeline/output/
+# Current deployment (this host — see DEPLOYMENT.md): runs under the `devops`
+# account, state at the checkout (NEWSPIPELINE_HOME=/home/devops/newspipeline).
+#   /home/devops/newspipeline/config/settings.toml
+#   /home/devops/newspipeline/.env      (secrets; 0600, owned by devops)
+#   /home/devops/newspipeline/data/news.db
+#   /home/devops/newspipeline/output/
 #
 # Install:
 #   sudo cp deploy/newspipeline.service /etc/systemd/system/
-#   # adjust User= and paths if you deviate from the suggested layout
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now newspipeline.service
 #   journalctl -u newspipeline -f          # logs (ISO 8601 timestamps)
@@ -24,21 +24,23 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=newspipeline
-Group=newspipeline
-Environment=NEWSPIPELINE_HOME=/var/lib/newspipeline
-ExecStart=/opt/newspipeline/.venv/bin/newspipeline serve --host 127.0.0.1 --port 8421
+User=devops
+Group=devops
+Environment=NEWSPIPELINE_HOME=/home/devops/newspipeline
+WorkingDirectory=/home/devops/newspipeline
+ExecStart=/home/devops/newspipeline/.venv/bin/newspipeline serve --host 127.0.0.1 --port 8421
 
 # Restart on any exit — a fresh start implies the previous process died;
 # its orphaned 'running' rows are swept at startup (DECISIONS.md D10).
 Restart=always
 RestartSec=5
 
-# Hardening: the service needs network + write access to NEWSPIPELINE_HOME
-# and nothing else.
+# Hardening: the service needs network, X access and write access to the
+# checkout that is NEWSPIPELINE_HOME (and /home/devops, because ProtectHome
+# cannot carve out a home directory that also holds the venv we execute).
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ReadWritePaths=/home/devops/newspipeline
 PrivateTmp=true
 PrivateDevices=true
 ProtectKernelTunables=true
@@ -47,7 +49,6 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-ReadWritePaths=/var/lib/newspipeline
 
 [Install]
 WantedBy=multi-user.target

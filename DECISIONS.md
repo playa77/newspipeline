@@ -811,3 +811,85 @@ D5's single-user/global-deduplication assumptions. Configuration stays in TOML
   disabled subscription restoration. Cover stale reconnect responses and failed
   delivery retry gating. Document the advanced editor and separate desktop
   reinstall. Live visual/SSH checks remain manual; no deployment is performed.
+
+## 2026-10-08 — D19: scraper politeness layer — request spacing, bounded transient retry, browser identity with single plain-identity fallback (R1/R2)
+
+- R1 (operator-specified): every outbound scraper request obeys a shared
+  minimum-gap schedule (P1): the first request of a scrape proceeds
+  immediately; every subsequent request is held back until a fixed minimum gap
+  (module constant `REQUEST_MIN_GAP_SECONDS`, default 2.0 s) has elapsed since
+  the previous request BEGAN — slow responses do not extend the schedule, and
+  retry waits count toward the same spacing. Spacing is per-run (one
+  `PolitenessLayer` per scrape run), so it spans the feed fetch and all
+  article fetches of that run while `serve`-driven interests stay independent.
+- R2 (operator-directed): transient failures — statuses 429/500/502/503/504
+  plus network-level `httpx.TransportError` — retry up to
+  `MAX_TRANSIENT_RETRIES` (default 3) times with exponentially growing delays
+  (`base_delay * 2**attempt`, capped at `TRANSIENT_MAX_DELAY_SECONDS` = 30 s).
+  A server-suggested `Retry-After` replaces the computed delay but is capped
+  at `RETRY_AFTER_CAP_SECONDS` = 60 s so a hostile or misconfigured server
+  cannot stall a run for minutes. An exhausted budget surfaces into the
+  scraper's pre-existing log-and-skip behavior; nothing is swallowed.
+- R2: every request carries a conventional browser User-Agent
+  (`politeness.USER_AGENT`). A browser rejection (the observed-in-the-wild
+  nonstandard 419; deliberately NOT 403/406/429, which stay on the normal
+  transient path) earns exactly ONE fallback attempt with the plain default
+  client identity; the fallback's result surfaces unmodified, and the host is
+  remembered — later requests to that host go out with the plain identity
+  directly, never re-probing with the browser identity. Worst case per URL:
+  1 request (healthy), 1 + 3 (transient path), 2 (fallback path).
+- Guard tests: `tests/test_politeness.py` (13 tests) pin P1 (gap-from-previous-
+  request-start, incl. the slow-response case), P2 (bounded retry, Retry-After
+  honored-but-capped, computed exponential delay, network-error retry,
+  exhausted budget), P3 (browser UA default, single plain fallback, no
+  cross-identity retry, remembered fallback host, healthy sources unprobed)
+  and one integration test proving `pipeline._scrape` routes BOTH the feed
+  fetch and every article fetch through the layer. Suite: 222 passed.
+  Deliberate non-goals left for a later decision: no per-host backoff state
+  shared across runs, no robots.txt handling, no Retry-After HTTP-date form.
+
+## 2026-10-08 — D21: deployment model becomes single-host under the existing `devops` account (R1/R2/R3)
+
+- R1 (operator decision): the dedicated `newspipeline` service user,
+  `/var/lib/newspipeline` state home and bare-repo push path (0.5.x model)
+  are retired. newspipeline runs on the same host it is developed on
+  (`vmd192484`, 37.60.240.152) under the existing `devops` account, with
+  NEWSPIPELINE_HOME at the checkout (`/home/devops/newspipeline`) and code
+  delivered via GitHub clone/pull.
+- R2: `deploy/newspipeline.service` re-targets that layout: `User=devops`,
+  `WorkingDirectory` at the checkout, `Environment=NEWSPIPELINE_HOME` set to
+  it, `ReadWritePaths` for the checkout. `ProtectHome` is dropped because
+  the home directory holds the venv being executed; the rest of the
+  hardening set is unchanged. Password authentication for the SSH account
+  stays enabled by operator requirement: the account must not be switched
+  to key-only operation, in this phase or any later one; deployment docs
+  therefore contain no sshd auth-restriction guidance and no authorized_keys
+  restrictions.
+- R3: verified live (docs sweep 2026-10-08): host facts gathered from the
+  running system (hostname, IP, Ubuntu 26.04.1, system Python 3.14 vs app
+  venv 3.12 via uv); README human-verification checklist re-opened — every
+  row needs its first manual pass against this install (the 2026-09-18
+  VPS verifications belong to the superseded layout).
+
+## 2026-10-08 — D22 (OPEN, todo): politeness across the FULL run — scheduler-level concurrency leaves a netiquette gap (R3)
+
+- R3 (operator-identified during the 2026-10-08 smoke run, recorded as OI-24):
+  the politeness layer (D19) enforces its shared 2 s gap, bounded retry and
+  browser-identity policy within a single scrape run — but the scheduler
+  launches ALL due interests concurrently. Live evidence, 13:47:30–13:47:31:
+  six "Pipeline run starting" lines within one second; six different feed
+  hosts fetched in that same second. The per-run gap does NOT bound the
+  machine's combined outbound request rate.
+- Scope of the still-open work item (*not decided, not implemented*):
+  (a) serialize interest runs end-to-end (strictly one at a time), OR
+  (b) share one PolitenessLayer across concurrently running interests
+      (global or per-host schedule), OR
+  (c) stagger interest start times in settings.toml;
+  plus decide whether the politeness policy should also apply to (d) the
+  failure-alert / email paths, (e) any client-driven API fetches launched
+  server-side, and whether the combined-parallelism shape (currently ~6
+  concurrent streams) is acceptable for RSS hosts that rate-limit per-IP
+  (Reddit-style 403 blocking of the smoke run is the observed symptom).
+- Resolution record to be appended here when the decision is made; until
+  then, D19's per-run layer remains the only politeness guarantee, and
+  nightly 04:00 catches a ~6-stream burst at start.
