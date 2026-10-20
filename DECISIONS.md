@@ -893,3 +893,27 @@ D5's single-user/global-deduplication assumptions. Configuration stays in TOML
 - Resolution record to be appended here when the decision is made; until
   then, D19's per-run layer remains the only politeness guarantee, and
   nightly 04:00 catches a ~6-stream burst at start.
+
+## 2026-10-20 — D23: LLM provider — OpenCode Go endpoint supported, live install switched (R1)
+
+- Context: OpenRouter credits ran out 2026-10-17; every daily run 2026-10-17…20
+  failed its analysis stage with HTTP 402 yet was recorded `completed` with
+  empty output and sent nothing (OI-25). Operator moved billing to OpenCode Go
+  and supplied the key via `pass` into `.env` (never in chat, never logged).
+- Decision (operator, this session): live `api_base_url` →
+  `https://opencode.ai/zen/go/v1`, model id `glm-5.3-flash` (bare form — the
+  OpenRouter-style `z-ai/…` id is rejected upstream), effort `high` unchanged.
+- R1: provider selection is a settings.toml value plus a `.env` key — reversal
+  is a one-line config edit and key swap. `llm.py` keeps the generic
+  OpenAI-compatible path and gates provider quirks on the endpoint host:
+  (a) `x-opencode-session` header, one uuid per `LLMClient` (per pipeline run)
+      — required by the provider ("Request is missing x-opencode-session");
+  (b) `User-Agent: newspipeline/<version>` per the provider's client guidance;
+  (c) reasoning effort as the OpenAI-native `reasoning_effort` string — the
+      OpenRouter `reasoning: {effort}` object is rejected by this endpoint.
+- Verified live 2026-10-20: probe 200 (content + reasoning tokens); full
+  `run --all` — runs 79–84 completed, six brief emails delivered
+  (647–832 words), suite 222 passed. Evidence: journal/`run` log POSTs to
+  `opencode.ai/zen/go/v1` all 200; `briefs` table word counts 79–84.
+- Side observation for OI-24: Reddit 403/429 blocking persists under the new
+  provider (LLM-independent); the politeness gap stays open.

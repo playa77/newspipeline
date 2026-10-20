@@ -4,19 +4,30 @@ All LLM traffic in newspipeline goes through LLMClient — there is no other
 code path. Default provider is OpenRouter; both endpoint and model are
 configurable via settings.toml.
 
+OpenCode Go endpoints (https://opencode.ai/zen/go/v1) additionally require a
+stable ``x-opencode-session`` header per conversation and a client-specific
+User-Agent (docs/console/go). One session id is generated per LLMClient
+instance, i.e. per pipeline run. Reasoning effort is sent in the OpenAI-native
+``reasoning_effort`` string form there; the OpenRouter ``reasoning: {effort}``
+object remains the default for other endpoints.
+
 The API key is used only for the Authorization header and is never logged
 (invariant G1).
 """
 
-# version: 0.2.0
+# version: 0.2.1
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
+
+from newspipeline import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +44,13 @@ class LLMClient:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._default_model = default_model
-        self._http = httpx.AsyncClient(
-            timeout=httpx.Timeout(120.0),
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
+        host = (urlparse(self._base_url).hostname or "").lower()
+        self._is_opencode = host in ("opencode.ai", "www.opencode.ai")
+        headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+        if self._is_opencode:
+            headers["x-opencode-session"] = str(uuid.uuid4())
+            headers["User-Agent"] = f"newspipeline/{__version__}"
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(120.0), headers=headers)
 
     async def close(self) -> None:
         await self._http.aclose()
@@ -64,7 +78,10 @@ class LLMClient:
             "max_tokens": max_tokens,
         }
         if reasoning_effort:
-            body["reasoning"] = {"effort": reasoning_effort}
+            if self._is_opencode:
+                body["reasoning_effort"] = reasoning_effort
+            else:
+                body["reasoning"] = {"effort": reasoning_effort}
 
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES + 1):

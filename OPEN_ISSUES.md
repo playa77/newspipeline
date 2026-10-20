@@ -151,6 +151,19 @@ re-litigated)" block. Listed here for visibility; each stays closed unless re-op
   politeness applies to article fetches identically to feed fetches.
   Repair options documented (not chosen yet). Owner: **agent + operator**
 
+- **OI-25** — **(opened 2026-10-20, D23 session) LLM-outage runs are recorded
+  `completed` with empty output and no failure alert.** Evidence: 2026-10-17
+  04:00 through 2026-10-20 04:00, every scheduled run logged `Analysis failed
+  for run N: LLM call failed after 3 attempts … 402 Payment Required` yet the
+  `runs` rows show `status='completed'` (0 failed rows across all 78 runs),
+  zero emails were sent (last successful send 2026-10-16 04:07), and no
+  failure-alert email fired — the four-day gap surfaced only via journal
+  reading. Root cause shape: the pipeline degrades a failed LLM stage into an
+  empty document instead of failing the run, so the `status='failed'` alert
+  path (failure alerts per recipient resolution) never triggers.
+  Repair: fail the run (or mark it degraded and alert) when analysis/brief
+  stages error out. Owner: **agent + operator**.
+
 ### Class 6 — tooling/hygiene
 
 - **OI-16** — The client is installed as a **copied, non-editable** package (`pip install
