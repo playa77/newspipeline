@@ -57,7 +57,11 @@ browser-originated requests on the machines themselves.
   emails are a per-interest switch (`email_themes`, default on): with it off
   the interest receives the daily brief only, and its themes are still
   generated and archived
-- **Any OpenAI-compatible LLM endpoint** (default: OpenRouter), per-stage
+- **Any OpenAI-compatible LLM endpoint** — default provider OpenRouter
+  (`https://openrouter.ai/api/v1`), also verified against OpenCode Go
+  (`https://opencode.ai/zen/go/v1`, which additionally requires a
+  `x-opencode-session` header and a client User-Agent — handled
+  automatically), per-stage
   model overrides, optional reasoning effort
 - Secrets in `.env` on the server only — never in config files, never in
   logs, never in an API response
@@ -70,7 +74,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 newspipeline init          # creates config/settings.toml, data/, .env
-$EDITOR .env               # set NEWS_API_KEY (OpenRouter key)
+$EDITOR .env               # set NEWS_API_KEY (provider API key)
 ```
 
 ## Recipients and independent delivery

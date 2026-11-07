@@ -3,6 +3,35 @@
 All notable changes to newspipeline are documented here, appended as work
 happens. Format: version heading, date, grouped bullet points.
 
+## 0.5.2 — 2026-10-20 (change, in progress)
+
+### Changed
+
+- **LLM provider switched from OpenRouter to OpenCode Go** (D23). The live
+  `config/settings.toml` now targets `https://opencode.ai/zen/go/v1` with the
+  model id `glm-5.3-flash` in OpenCode's bare form — OpenRouter's
+  vendor-prefixed `z-ai/glm-5.3-flash` id is rejected upstream — same model,
+  same reasoning effort (`high`). The API key moved to the OpenCode key in
+  `.env`; reversing the switch is a one-line config edit plus key swap.
+- `llm.py` (0.2.1) speaks both dialects, gated on the endpoint host: for
+  opencode.ai endpoints the client sends a per-run `x-opencode-session`
+  header (provider requirement — one uuid per `LLMClient`, i.e. per pipeline
+  run), identifies as `User-Agent: newspipeline/<version>`, and forwards
+  reasoning effort in the OpenAI-native `reasoning_effort` string form — the
+  OpenRouter-style `reasoning: {effort: …}` object is rejected by the
+  endpoint (`Extra inputs are not permitted, field: 'reasoning'`). OpenRouter
+  endpoints behave exactly as before.
+- Version aligned to the shipped state: `__version__`/`pyproject.toml`
+  0.5.1 → 0.5.2, smoke-test version pin updated; README and `.env.example`
+  document the OpenCode Go endpoint.
+- **Live evidence (2026-10-20, this host):** auth probe HTTP 200 with
+  reasoning tokens present; full `run --all` — runs 79–84 all completed, six
+  brief emails delivered to the recipient (647–832 words each), every
+  chat-completions call HTTP 200; suite 222 passed after the version bump.
+- Known issue recorded: **OI-25** — LLM-outage runs are recorded `completed`
+  with empty output and no failure alert (how the 2026-10-17…20 OpenRouter
+  402 outage stayed invisible for four days).
+
 ## 0.5.1 — 2026-09-18 (fix)
 
 ### Fixed

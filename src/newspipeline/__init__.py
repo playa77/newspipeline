@@ -5,6 +5,6 @@ email and local-file delivery; JSON configuration API + built-in
 scheduler for a VPS, managed by a desktop client over an SSH tunnel.
 """
 
-# version: 0.5.1
+# version: 0.5.2
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
